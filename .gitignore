@@ -40,9 +40,7 @@ HyperCOT_MS_Complex_Report*
 IonizationFront/
 sinusoidal/
 
-# Old/unused screenshots (replaced by generated ones)
-clean_extended.png
-noise_extended.png
+# Old/unused screenshots
 VC adjacency figures_example.png
 
 # PDF versions of figures (keep PNGs only)

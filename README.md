@@ -205,12 +205,12 @@ The node measure captures topological importance via **extended persistence**:
 5. **Normalize:** $\mu(v) = C(v) / \sum_{v'} C(v')$
 
 **Clean Extended Persistence Diagram + Persistence Image + Node Measure:**
-![Clean Extended Persistence](clean_persistence_mu.png)
+![Clean Extended Persistence](clean_extended.png)
 
 **Noisy Extended Persistence Diagram + Persistence Image + Node Measure:**
-![Noisy Extended Persistence](noisy_persistence_mu.png)
+![Noisy Extended Persistence](noise_extended.png)
 
-**Output:** `*_node_measure.csv`, `*_persistence_mu.png`
+**Output:** `*_node_measure.csv`
 
 ---
 
@@ -377,7 +377,7 @@ python visualize_hypercot_final.py
 |--------|-------------|-------|--------|
 | `generate_hypergraph.py` | Build hypergraph from MS segmentation | `*_segmentation.csv`, `*_separatrices_cells.csv` | `hypergraph_*.csv`, `coot_input.png` |
 | `ms_complex_comparison.py` | Compute WD and GWD | `*_critical_points.csv`, `*_separatrices_cells.csv` | Distance values |
-| `compute_node_measure.py` | Compute μ via persistence | `*_critical_points.csv`, `*_separatrices_cells.csv` | `*_node_measure.csv`, `*_persistence_mu.png` |
+| `compute_node_measure.py` | Compute μ via persistence | `*_critical_points.csv`, `*_separatrices_cells.csv` | `*_node_measure.csv` |
 | `compute_nu.py` | Compute ν from μ | `*_node_measure.csv`, `hypergraph_*.csv` | `*_nu.csv` |
 | `compute_omega.py` | Compute ω via Dijkstra | All CSV files | `*_omega.csv`, `*_virtual_centers.csv`, `*_vc_adjacency.csv` |
 | `visualize_vc_adjacency.py` | Visualize VC generation + augmented graph | ω output files | `*_vc_adjacency.png` |
@@ -433,8 +433,8 @@ python visualize_hypercot_final.py
 │   ├── wd_input.png                   # WD input (scalar values)
 │   ├── gwd_input.png                  # GWD input (graph structure)
 │   ├── coot_input.png                 # HyperCOT input (hypergraph)
-│   ├── clean_persistence_mu.png       # Clean: persistence diagram + PI + μ
-│   ├── noisy_persistence_mu.png       # Noisy: persistence diagram + PI + μ
+│   ├── clean_extended.png             # Clean: persistence diagram + PI + μ
+│   ├── noise_extended.png             # Noisy: persistence diagram + PI + μ
 │   ├── clean_vc_adjacency.png         # Clean: VC generation + augmented graph + shortest path
 │   └── noisy_vc_adjacency.png         # Noisy: VC generation + augmented graph + shortest path
 │
