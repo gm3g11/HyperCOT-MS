@@ -1,0 +1,2 @@
+hypercot_cost,n_clean_cps,n_noisy_cps,n_clean_regions,n_noisy_regions,type_preservation,pi_entropy,xi_entropy,iterations
+0.06470844682755982,49,65,36,47,0.5714285714285714,7.707986382560829,7.369210642370771,4

@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Temporary files
+*.tmp
+*.bak
+~$*
+
+# NumPy files (can be regenerated)
+*.npy
+
+# Personal reports and presentations
+weekly report*.pptx
+HyperCOT_MS_Complex_Report*
+
+# Claude config
+.claude/
+
+# Other directories
+IonizationFront/
+sinusoidal/
+
+# Old/unused screenshots (replaced by generated ones)
+clean_extended.png
+noise_extended.png
+VC adjacency figures_example.png
+
+# PDF versions of figures (keep PNGs only)
+*.pdf
