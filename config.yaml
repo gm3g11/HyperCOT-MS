@@ -1,0 +1,77 @@
+# HyperCOT-MS Configuration File
+# ================================
+
+# Data paths (relative to project root)
+paths:
+  data_dir: "data"
+  output_dir: "output"
+  figures_dir: "output/figures"
+
+# Input data files
+data:
+  clean:
+    critical_points: "clean_critical_points.csv"
+    separatrices: "clean_separatrices_cells.csv"
+    segmentation: "clean_segmentation.csv"
+    hypergraph: "hypergraph_clean.csv"
+  noisy:
+    critical_points: "noisy_critical_points.csv"
+    separatrices: "noisy_separatrices_cells.csv"
+    segmentation: "noisy_segmentation.csv"
+    hypergraph: "hypergraph_noisy.csv"
+
+# HyperCOT algorithm parameters
+hypercot:
+  # Entropy regularization (0 = exact EMD, >0 = Sinkhorn)
+  epsilon: 0.001
+  # Type preservation penalty weight
+  alpha_type: 0.001
+  # Optimization parameters
+  nits_bcd: 100      # Block Coordinate Descent iterations
+  tol_bcd: 1.0e-7    # BCD convergence tolerance
+  nits_ot: 500       # Sinkhorn iterations
+  tol_sinkhorn: 1.0e-7  # Sinkhorn convergence tolerance
+
+# Node measure (mu) parameters
+node_measure:
+  # Persistence image parameters
+  resolution: 20        # Grid resolution
+  sigma: 0.1           # Gaussian kernel bandwidth
+  weight_func: "linear" # Weight function for persistence
+
+# Hypernetwork function (omega) parameters
+omega:
+  # Edge weight type: "euclidean" or "geodesic"
+  edge_weight: "euclidean"
+  # Include virtual centers in graph
+  use_virtual_centers: true
+
+# Visualization parameters
+visualization:
+  # Figure DPI
+  dpi: 150
+  # Colormap for coupling matrices
+  pi_cmap: "TransparentReds"
+  xi_cmap: "Oranges"
+  # Top-K correspondences to show
+  top_k_lines: 15
+  # Opacity range for regions
+  opacity_min: 0.35
+  opacity_max: 0.85
+
+# Wasserstein Distance parameters
+wasserstein:
+  # Regularization for Sinkhorn
+  reg: 0.01
+
+# Gromov-Wasserstein parameters
+gromov_wasserstein:
+  # Regularization
+  reg: 0.01
+  # Number of iterations
+  max_iter: 1000
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "output/hypercot.log"

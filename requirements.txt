@@ -1,0 +1,26 @@
+# HyperCOT-MS: Morse-Smale Complex Comparison using Optimal Transport
+# Python >= 3.8 required
+
+# Core scientific computing
+numpy>=1.21.0
+pandas>=1.3.0
+scipy>=1.7.0
+
+# Visualization
+matplotlib>=3.4.0
+
+# Optimal Transport
+POT>=0.8.0  # Python Optimal Transport library
+
+# Graph algorithms
+networkx>=2.6.0
+
+# Topological Data Analysis
+gudhi>=3.4.0  # For persistent homology
+cereeberus>=0.1.0  # For Reeb graphs (optional)
+
+# Presentation generation (optional)
+python-pptx>=0.6.21
+
+# Configuration
+PyYAML>=6.0

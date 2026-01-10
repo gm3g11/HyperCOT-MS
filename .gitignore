@@ -7,16 +7,22 @@ __pycache__/
 env/
 venv/
 .env
+.venv/
+*.egg-info/
+dist/
+build/
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
+._*
 
 # Jupyter
 .ipynb_checkpoints/
@@ -28,6 +34,9 @@ Thumbs.db
 
 # NumPy files (can be regenerated)
 *.npy
+*.npz
+*.pkl
+*.pickle
 
 # Personal reports and presentations
 weekly report*.pptx
@@ -45,3 +54,30 @@ VC adjacency figures_example.png
 
 # PDF versions of figures (keep PNGs only)
 *.pdf
+
+# ===========================================
+# Generated output files (can be regenerated)
+# ===========================================
+
+# Log files
+output/*.log
+*.log
+
+# Intermediate HyperCOT files
+*_node_measure.csv
+*_nu.csv
+*_omega.csv
+*_virtual_centers.csv
+hypercot_pi.csv
+hypercot_xi.csv
+hypercot_summary.csv
+
+# Generated visualization outputs
+*_correspondence*.png
+*_comparison*.png
+hypercot_*.png
+wd_*.png
+gwd_*.png
+
+# PowerPoint presentations (generated)
+*.pptx

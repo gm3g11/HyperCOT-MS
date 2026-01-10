@@ -343,7 +343,12 @@ alpha_type = 0.001 # Small type penalty for balanced results
 ### Dependencies
 
 ```bash
-pip install numpy pandas scipy matplotlib gudhi pot
+pip install -r requirements.txt
+```
+
+Or install manually:
+```bash
+pip install numpy pandas scipy matplotlib gudhi POT networkx PyYAML
 ```
 
 **Required packages:**
@@ -354,7 +359,9 @@ pip install numpy pandas scipy matplotlib gudhi pot
 | `scipy` | Dijkstra shortest path, optimization |
 | `matplotlib` | Visualization |
 | `gudhi` | Extended persistence computation |
-| `pot` | **POT (Python Optimal Transport)** - COOT optimization |
+| `POT` | **Python Optimal Transport** - COOT optimization |
+| `networkx` | Graph algorithms |
+| `PyYAML` | Configuration file support |
 
 ### Optional: TTK Installation
 
@@ -364,9 +371,35 @@ To regenerate input data from raw scalar fields, install [TTK](https://topology-
 
 ## Usage
 
-### Quick Start
+### Quick Start (Pipeline Script)
 
-Run all methods in sequence:
+Run the entire HyperCOT pipeline with a single command:
+
+```bash
+# Run all steps
+python run_all.py
+
+# Run with verbose output
+python run_all.py -v
+
+# Run specific steps only
+python run_all.py --steps 5,6    # Only HyperCOT + visualization
+
+# List available steps
+python run_all.py --list-steps
+```
+
+**Pipeline Steps:**
+1. Generate hypergraph structure
+2. Compute node measures (μ)
+3. Compute hyperedge measures (ν)
+4. Compute hypernetwork function (ω)
+5. Run HyperCOT optimization
+6. Generate visualizations
+
+### Manual Execution
+
+Run individual scripts with custom parameters:
 
 ```bash
 # 1. Generate hypergraph from TTK segmentation
@@ -387,12 +420,42 @@ python compute_nu.py              # ν (hyperedge measure)
 python compute_omega.py           # ω (hypernetwork function)
 python visualize_vc_adjacency.py  # VC generation + augmented graph visualization
 
-# 6. Run HyperCOT optimization
-python compute_hypercot.py
+# 6. Run HyperCOT optimization (with custom parameters)
+python compute_hypercot.py --epsilon 0.001 --alpha 0.001
 
 # 7. Visualize HyperCOT results
 python visualize_hypercot_final.py
 ```
+
+### Command Line Options
+
+**`compute_hypercot.py`:**
+```bash
+python compute_hypercot.py --help
+
+Options:
+  --data-dir, -d     Directory containing input data files
+  --output-dir, -o   Directory for output files
+  --config, -c       Path to config.yaml file
+  --epsilon, -e      Entropy regularization (0=EMD, >0=Sinkhorn)
+  --alpha, -a        Type preservation penalty weight
+  --nits-bcd         Number of BCD iterations
+  --verbose, -v      Enable verbose output
+  --quiet, -q        Suppress most output
+```
+
+### Configuration
+
+All parameters can be configured via `config.yaml`:
+
+```yaml
+hypercot:
+  epsilon: 0.001      # Entropy regularization
+  alpha_type: 0.001   # Type penalty weight
+  nits_bcd: 100       # BCD iterations
+```
+
+Command line arguments override config file values.
 
 ### Script Descriptions
 
@@ -411,8 +474,15 @@ python visualize_hypercot_final.py
 ## File Structure
 
 ```
-├── README.md
+├── README.md                          # This file
 ├── CLAUDE.md                          # Project notes
+├── requirements.txt                   # Python dependencies
+├── config.yaml                        # Configuration parameters
+├── .gitignore                         # Git ignore patterns
+│
+├── Pipeline & Utilities
+│   ├── run_all.py                     # Main pipeline script
+│   └── utils.py                       # Utility functions (logging, config, validation)
 │
 ├── Original Surfaces
 │   ├── clean_input_ori.png            # Clean sinusoidal surface
@@ -440,7 +510,7 @@ python visualize_hypercot_final.py
 │   ├── visualize_gwd_correspondence.py
 │   └── visualize_hypercot_final.py
 │
-├── Intermediate Data
+├── Intermediate Data (generated)
 │   ├── hypergraph_clean.csv           # Clean hyperedges
 │   ├── hypergraph_noisy.csv           # Noisy hyperedges
 │   ├── clean_node_measure.csv         # μ for clean
@@ -461,7 +531,7 @@ python visualize_hypercot_final.py
 │   ├── clean_vc_adjacency.png         # Clean: VC generation + augmented graph + shortest path
 │   └── noisy_vc_adjacency.png         # Noisy: VC generation + augmented graph + shortest path
 │
-└── Output
+└── Output (generated)
     ├── wd_correspondence_refined.png
     ├── gwd_point_edge_correspondence.png
     ├── hypercot_detailed_correspondence.png

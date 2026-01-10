@@ -12,7 +12,18 @@ Subject to:
 
 Uses POT library's co_optimal_transport implementation.
 Reference: Redko et al. (2020) "CO-Optimal Transport", NeurIPS.
+
+Usage:
+    python compute_hypercot.py                    # Use defaults
+    python compute_hypercot.py --data-dir ./data  # Custom data directory
+    python compute_hypercot.py --epsilon 0.01     # Custom regularization
+    python compute_hypercot.py --config my.yaml   # Custom config file
 """
+
+import argparse
+import sys
+from pathlib import Path
+from typing import Dict, Any, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -22,40 +33,133 @@ from ot import coot
 import os
 import warnings
 
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+try:
+    from utils import (
+        get_project_root,
+        load_config,
+        get_config_value,
+        setup_logging,
+        get_logger,
+        resolve_path,
+        HyperCOTError,
+        DataValidationError,
+        validate_coupling_matrix,
+        validate_measure,
+        compute_type_preservation as calc_type_preservation,
+        compute_entropy
+    )
+    USE_UTILS = True
+except ImportError:
+    USE_UTILS = False
+
 warnings.filterwarnings('ignore')
 
-BASE_PATH = "/Users/gmeng/Desktop/COOT on Morse-Smale"
+# Default base path (can be overridden via args or config)
+BASE_PATH = Path(__file__).parent.resolve()
 
 
 # =============================================================================
 # DATA LOADING
 # =============================================================================
 
-def load_hypercot_data(prefix):
-    """Load all HyperCOT components for one MS complex."""
-    # Load μ (node measure)
-    mu_df = pd.read_csv(os.path.join(BASE_PATH, f"{prefix}_node_measure.csv"))
-    mu = mu_df['mu'].values
+def load_hypercot_data(prefix: str, base_path: Optional[Path] = None) -> Dict[str, Any]:
+    """
+    Load all HyperCOT components for one MS complex.
 
-    # Load ν (hyperedge measure)
-    nu_df = pd.read_csv(os.path.join(BASE_PATH, f"{prefix}_nu.csv"))
-    nu = nu_df['nu'].values
+    Args:
+        prefix: Data prefix ('clean' or 'noisy').
+        base_path: Base directory for data files. Defaults to BASE_PATH.
 
-    # Load ω (hypernetwork function)
-    omega_df = pd.read_csv(os.path.join(BASE_PATH, f"{prefix}_omega.csv"), index_col=0)
-    omega = omega_df.values
+    Returns:
+        Dictionary containing:
+            - mu: Node measure array (n_cps,)
+            - nu: Hyperedge measure array (n_regions,)
+            - omega: Hypernetwork function matrix (n_cps x n_regions)
+            - cp_data: DataFrame with CP coordinates and types
+            - vc_data: DataFrame with virtual center coordinates
 
-    # Load CP data for visualization
-    cp_df = pd.read_csv(os.path.join(BASE_PATH, f"{prefix}_critical_points.csv"))
-    cp_data = pd.DataFrame({
-        'x': cp_df['Points_0'],
-        'y': cp_df['Points_1'],
-        'z': cp_df['Points_2'],
-        'cp_type': cp_df['CellDimension']
-    })
+    Raises:
+        FileNotFoundError: If required data files don't exist.
+        ValueError: If data files have invalid format.
+    """
+    if base_path is None:
+        base_path = BASE_PATH
 
-    # Load virtual centers
-    vc_df = pd.read_csv(os.path.join(BASE_PATH, f"{prefix}_virtual_centers.csv"))
+    base_path = Path(base_path)
+
+    # Define expected files
+    files = {
+        'mu': f"{prefix}_node_measure.csv",
+        'nu': f"{prefix}_nu.csv",
+        'omega': f"{prefix}_omega.csv",
+        'cp': f"{prefix}_critical_points.csv",
+        'vc': f"{prefix}_virtual_centers.csv"
+    }
+
+    # Check all files exist
+    missing = []
+    for name, filename in files.items():
+        filepath = base_path / filename
+        if not filepath.exists():
+            missing.append(filename)
+
+    if missing:
+        raise FileNotFoundError(
+            f"Missing required data files for '{prefix}': {missing}\n"
+            f"Expected in: {base_path}"
+        )
+
+    try:
+        # Load μ (node measure)
+        mu_df = pd.read_csv(base_path / files['mu'])
+        if 'mu' not in mu_df.columns:
+            raise ValueError(f"Missing 'mu' column in {files['mu']}")
+        mu = mu_df['mu'].values
+
+        # Load ν (hyperedge measure)
+        nu_df = pd.read_csv(base_path / files['nu'])
+        if 'nu' not in nu_df.columns:
+            raise ValueError(f"Missing 'nu' column in {files['nu']}")
+        nu = nu_df['nu'].values
+
+        # Load ω (hypernetwork function)
+        omega_df = pd.read_csv(base_path / files['omega'], index_col=0)
+        omega = omega_df.values
+
+        # Validate omega dimensions
+        if omega.shape[0] != len(mu):
+            raise ValueError(
+                f"Omega rows ({omega.shape[0]}) != mu length ({len(mu)})"
+            )
+        if omega.shape[1] != len(nu):
+            raise ValueError(
+                f"Omega cols ({omega.shape[1]}) != nu length ({len(nu)})"
+            )
+
+        # Load CP data for visualization
+        cp_df = pd.read_csv(base_path / files['cp'])
+        required_cp_cols = ['Points_0', 'Points_1', 'Points_2', 'CellDimension']
+        missing_cols = [c for c in required_cp_cols if c not in cp_df.columns]
+        if missing_cols:
+            raise ValueError(f"Missing columns in {files['cp']}: {missing_cols}")
+
+        cp_data = pd.DataFrame({
+            'x': cp_df['Points_0'],
+            'y': cp_df['Points_1'],
+            'z': cp_df['Points_2'],
+            'cp_type': cp_df['CellDimension']
+        })
+
+        # Load virtual centers
+        vc_df = pd.read_csv(base_path / files['vc'])
+
+    except pd.errors.EmptyDataError as e:
+        raise ValueError(f"Empty data file encountered: {e}")
+    except pd.errors.ParserError as e:
+        raise ValueError(f"Failed to parse CSV file: {e}")
 
     return {
         'mu': mu,
@@ -333,11 +437,119 @@ def plot_hypercot_results(pi, xi, cp1, cp2, vc1, vc2, log, cost, save_path):
 # MAIN
 # =============================================================================
 
-def main():
-    print("="*60)
-    print("HyperCOT: CO-OPTIMAL TRANSPORT FOR MS COMPLEX HYPERGRAPHS")
-    print("="*60)
-    print("""
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="HyperCOT: Co-Optimal Transport for MS Complex Hypergraphs",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    python compute_hypercot.py                         # Use default settings
+    python compute_hypercot.py --data-dir ./data       # Specify data directory
+    python compute_hypercot.py --epsilon 0.01          # Custom regularization
+    python compute_hypercot.py --alpha 0.01            # Custom type penalty
+    python compute_hypercot.py --output-dir ./results  # Custom output directory
+        """
+    )
+
+    parser.add_argument(
+        "--data-dir", "-d",
+        type=str,
+        default=None,
+        help="Directory containing input data files (default: project root)"
+    )
+
+    parser.add_argument(
+        "--output-dir", "-o",
+        type=str,
+        default=None,
+        help="Directory for output files (default: same as data-dir)"
+    )
+
+    parser.add_argument(
+        "--config", "-c",
+        type=str,
+        default=None,
+        help="Path to config.yaml file"
+    )
+
+    parser.add_argument(
+        "--epsilon", "-e",
+        type=float,
+        default=None,
+        help="Entropy regularization (0=EMD, >0=Sinkhorn, default: 0.001)"
+    )
+
+    parser.add_argument(
+        "--alpha", "-a",
+        type=float,
+        default=None,
+        help="Type preservation penalty weight (default: 0.001)"
+    )
+
+    parser.add_argument(
+        "--nits-bcd",
+        type=int,
+        default=None,
+        help="Number of BCD iterations (default: 100)"
+    )
+
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable verbose output"
+    )
+
+    parser.add_argument(
+        "--quiet", "-q",
+        action="store_true",
+        help="Suppress most output"
+    )
+
+    return parser.parse_args()
+
+
+def main(data_dir: Optional[str] = None,
+         output_dir: Optional[str] = None,
+         epsilon: float = 0.001,
+         alpha_type: float = 0.001,
+         nits_bcd: int = 100,
+         verbose: bool = True) -> Dict[str, Any]:
+    """
+    Run HyperCOT optimization.
+
+    Args:
+        data_dir: Directory containing input data files.
+        output_dir: Directory for output files.
+        epsilon: Entropy regularization (0=EMD, >0=Sinkhorn).
+        alpha_type: Type preservation penalty weight.
+        nits_bcd: Number of BCD iterations.
+        verbose: Print progress information.
+
+    Returns:
+        Dictionary containing pi, xi, cost, log, and analysis results.
+
+    Raises:
+        FileNotFoundError: If required input files don't exist.
+        ValueError: If input data is invalid.
+    """
+    # Resolve directories
+    if data_dir is None:
+        data_dir = BASE_PATH
+    else:
+        data_dir = Path(data_dir).resolve()
+
+    if output_dir is None:
+        output_dir = data_dir
+    else:
+        output_dir = Path(output_dir).resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    if verbose:
+        print("=" * 60)
+        print("HyperCOT: CO-OPTIMAL TRANSPORT FOR MS COMPLEX HYPERGRAPHS")
+        print("=" * 60)
+        print("""
 Objective:
     min_{π, ξ} Σ |ω₁(v,e) - ω₂(v',e')|² π(v,v') ξ(e,e')
 
@@ -347,81 +559,103 @@ Subject to:
 """)
 
     # Load data
-    print("\n1. Loading data...")
-    clean = load_hypercot_data("clean")
-    noisy = load_hypercot_data("noisy")
+    if verbose:
+        print("\n1. Loading data...")
+        print(f"   Data directory: {data_dir}")
 
-    print(f"   Clean: {len(clean['mu'])} CPs, {len(clean['nu'])} regions")
-    print(f"   Noisy: {len(noisy['mu'])} CPs, {len(noisy['nu'])} regions")
-    print(f"   Clean ω shape: {clean['omega'].shape}")
-    print(f"   Noisy ω shape: {noisy['omega'].shape}")
+    try:
+        clean = load_hypercot_data("clean", base_path=data_dir)
+        noisy = load_hypercot_data("noisy", base_path=data_dir)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"ERROR: Failed to load data: {e}")
+        raise
+
+    if verbose:
+        print(f"   Clean: {len(clean['mu'])} CPs, {len(clean['nu'])} regions")
+        print(f"   Noisy: {len(noisy['mu'])} CPs, {len(noisy['nu'])} regions")
+        print(f"   Clean ω shape: {clean['omega'].shape}")
+        print(f"   Noisy ω shape: {noisy['omega'].shape}")
 
     # Run COOT using POT library with type penalty
-    print("\n2. Running POT COOT optimization...")
-    pi, xi, log = run_coot(
-        clean['omega'], noisy['omega'],
-        clean['mu'], noisy['mu'],
-        clean['nu'], noisy['nu'],
-        cp_types1=clean['cp_data']['cp_type'].values,
-        cp_types2=noisy['cp_data']['cp_type'].values,
-        alpha_type=0.001,  # Very small type penalty for ~95%
-        epsilon=0.001,    # Sinkhorn regularization
-        nits_bcd=100,    # BCD iterations
-        tol_bcd=1e-7,    # BCD tolerance
-        nits_ot=500,     # OT iterations per BCD step
-        tol_sinkhorn=1e-7,
-        verbose=True
-    )
+    if verbose:
+        print("\n2. Running POT COOT optimization...")
+        print(f"   Parameters: epsilon={epsilon}, alpha={alpha_type}, nits_bcd={nits_bcd}")
+
+    try:
+        pi, xi, log = run_coot(
+            clean['omega'], noisy['omega'],
+            clean['mu'], noisy['mu'],
+            clean['nu'], noisy['nu'],
+            cp_types1=clean['cp_data']['cp_type'].values,
+            cp_types2=noisy['cp_data']['cp_type'].values,
+            alpha_type=alpha_type,
+            epsilon=epsilon,
+            nits_bcd=nits_bcd,
+            tol_bcd=1e-7,
+            nits_ot=500,
+            tol_sinkhorn=1e-7,
+            verbose=verbose
+        )
+    except Exception as e:
+        print(f"ERROR: COOT optimization failed: {e}")
+        raise
 
     # Compute final cost
     cost = compute_coot_cost(clean['omega'], noisy['omega'], pi, xi)
 
-    print(f"\n   Final COOT cost: {cost:.6f}")
-    print(f"   π shape: {pi.shape}")
-    print(f"   ξ shape: {xi.shape}")
+    if verbose:
+        print(f"\n   Final COOT cost: {cost:.6f}")
+        print(f"   π shape: {pi.shape}")
+        print(f"   ξ shape: {xi.shape}")
 
     # Analyze results
-    print("\n3. Analyzing coupling...")
+    if verbose:
+        print("\n3. Analyzing coupling...")
     analysis = analyze_coupling(pi, xi, clean['cp_data'], noisy['cp_data'],
                                 clean['vc_data'], noisy['vc_data'])
 
-    print(f"   Type preservation: {analysis['type_preservation']*100:.1f}%")
-    print(f"   π entropy: {analysis['pi_entropy']:.4f}")
-    print(f"   ξ entropy: {analysis['xi_entropy']:.4f}")
-    print(f"   π max coupling: {analysis['pi_max']:.6f}")
-    print(f"   ξ max coupling: {analysis['xi_max']:.6f}")
+    if verbose:
+        print(f"   Type preservation: {analysis['type_preservation']*100:.1f}%")
+        print(f"   π entropy: {analysis['pi_entropy']:.4f}")
+        print(f"   ξ entropy: {analysis['xi_entropy']:.4f}")
+        print(f"   π max coupling: {analysis['pi_max']:.6f}")
+        print(f"   ξ max coupling: {analysis['xi_max']:.6f}")
 
-    # Verify marginals
-    print("\n   Marginal verification:")
-    print(f"   π row sum range: [{pi.sum(axis=1).min():.6f}, {pi.sum(axis=1).max():.6f}]")
-    print(f"   π col sum range: [{pi.sum(axis=0).min():.6f}, {pi.sum(axis=0).max():.6f}]")
-    print(f"   ξ row sum range: [{xi.sum(axis=1).min():.6f}, {xi.sum(axis=1).max():.6f}]")
-    print(f"   ξ col sum range: [{xi.sum(axis=0).min():.6f}, {xi.sum(axis=0).max():.6f}]")
+        # Verify marginals
+        print("\n   Marginal verification:")
+        print(f"   π row sum range: [{pi.sum(axis=1).min():.6f}, {pi.sum(axis=1).max():.6f}]")
+        print(f"   π col sum range: [{pi.sum(axis=0).min():.6f}, {pi.sum(axis=0).max():.6f}]")
+        print(f"   ξ row sum range: [{xi.sum(axis=1).min():.6f}, {xi.sum(axis=1).max():.6f}]")
+        print(f"   ξ col sum range: [{xi.sum(axis=0).min():.6f}, {xi.sum(axis=0).max():.6f}]")
 
     # Visualize
-    print("\n4. Generating visualization...")
-    plot_path = os.path.join(BASE_PATH, "hypercot_results.png")
+    if verbose:
+        print("\n4. Generating visualization...")
+    plot_path = output_dir / "hypercot_results.png"
     plot_hypercot_results(pi, xi, clean['cp_data'], noisy['cp_data'],
-                         clean['vc_data'], noisy['vc_data'], log, cost, plot_path)
+                         clean['vc_data'], noisy['vc_data'], log, cost, str(plot_path))
 
     # Save results
-    print("\n5. Saving results...")
+    if verbose:
+        print("\n5. Saving results...")
 
     # Save π
     pi_df = pd.DataFrame(pi,
                         index=[f'Clean_CP_{i}' for i in range(pi.shape[0])],
                         columns=[f'Noisy_CP_{i}' for i in range(pi.shape[1])])
-    pi_path = os.path.join(BASE_PATH, "hypercot_pi.csv")
+    pi_path = output_dir / "hypercot_pi.csv"
     pi_df.to_csv(pi_path)
-    print(f"   Saved: {pi_path}")
+    if verbose:
+        print(f"   Saved: {pi_path}")
 
     # Save ξ
     xi_df = pd.DataFrame(xi,
                         index=[f'Clean_Region_{i+1}' for i in range(xi.shape[0])],
                         columns=[f'Noisy_Region_{i+1}' for i in range(xi.shape[1])])
-    xi_path = os.path.join(BASE_PATH, "hypercot_xi.csv")
+    xi_path = output_dir / "hypercot_xi.csv"
     xi_df.to_csv(xi_path)
-    print(f"   Saved: {xi_path}")
+    if verbose:
+        print(f"   Saved: {xi_path}")
 
     # Save summary
     summary = {
@@ -437,15 +671,17 @@ Subject to:
         'xi_max': analysis['xi_max']
     }
     summary_df = pd.DataFrame([summary])
-    summary_path = os.path.join(BASE_PATH, "hypercot_summary.csv")
+    summary_path = output_dir / "hypercot_summary.csv"
     summary_df.to_csv(summary_path, index=False)
-    print(f"   Saved: {summary_path}")
+    if verbose:
+        print(f"   Saved: {summary_path}")
 
     # Print final summary
-    print("\n" + "="*60)
-    print("SUMMARY")
-    print("="*60)
-    print(f"""
+    if verbose:
+        print("\n" + "=" * 60)
+        print("SUMMARY")
+        print("=" * 60)
+        print(f"""
 COOT Distance: {cost:.6f}
 
 Coupling Matrices:
@@ -463,10 +699,9 @@ Output Files:
   - hypercot_summary.csv (metrics)
   - hypercot_results.png (visualization)
 """)
-
-    print("="*60)
-    print("DONE!")
-    print("="*60)
+        print("=" * 60)
+        print("DONE!")
+        print("=" * 60)
 
     return {
         'pi': pi,
@@ -478,4 +713,37 @@ Output Files:
 
 
 if __name__ == "__main__":
-    results = main()
+    args = parse_args()
+
+    # Load config if specified
+    config_epsilon = 0.001
+    config_alpha = 0.001
+    config_nits = 100
+
+    if args.config and USE_UTILS:
+        try:
+            config = load_config(args.config)
+            config_epsilon = get_config_value('hypercot.epsilon', 0.001)
+            config_alpha = get_config_value('hypercot.alpha_type', 0.001)
+            config_nits = get_config_value('hypercot.nits_bcd', 100)
+        except Exception as e:
+            print(f"Warning: Could not load config: {e}")
+
+    # Command line args override config
+    epsilon = args.epsilon if args.epsilon is not None else config_epsilon
+    alpha = args.alpha if args.alpha is not None else config_alpha
+    nits_bcd = args.nits_bcd if args.nits_bcd is not None else config_nits
+    verbose = not args.quiet
+
+    try:
+        results = main(
+            data_dir=args.data_dir,
+            output_dir=args.output_dir,
+            epsilon=epsilon,
+            alpha_type=alpha,
+            nits_bcd=nits_bcd,
+            verbose=verbose
+        )
+    except Exception as e:
+        print(f"\nERROR: {e}")
+        sys.exit(1)
