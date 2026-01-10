@@ -10,8 +10,9 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
 import os
+from pathlib import Path
 
-BASE_PATH = "/Users/gmeng/Desktop/COOT on Morse-Smale"
+BASE_PATH = Path(__file__).parent.resolve()
 
 # Colors for CP types
 CP_COLORS = {

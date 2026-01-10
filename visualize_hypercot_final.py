@@ -26,8 +26,9 @@ from matplotlib.cm import ScalarMappable
 import matplotlib.colors as mcolors
 import matplotlib.patheffects as pe
 import os
+from pathlib import Path
 
-BASE_PATH = "/Users/gmeng/Desktop/COOT on Morse-Smale"
+BASE_PATH = Path(__file__).parent.resolve()
 
 # Thresholds and parameters
 SPURIOUS_THRESHOLD = 0.002    # Absolute threshold for spurious detection

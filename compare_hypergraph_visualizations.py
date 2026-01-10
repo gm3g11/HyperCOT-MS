@@ -21,8 +21,9 @@ from matplotlib.colors import LinearSegmentedColormap, Normalize
 from scipy.optimize import linear_sum_assignment
 import matplotlib.cm as cm
 import os
+from pathlib import Path
 
-BASE_PATH = "/Users/gmeng/Desktop/COOT on Morse-Smale"
+BASE_PATH = Path(__file__).parent.resolve()
 
 # Colors
 CP_COLORS = {0: '#2166ac', 1: '#4daf4a', 2: '#e41a1c'}

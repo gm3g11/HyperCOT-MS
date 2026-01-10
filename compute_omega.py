@@ -18,8 +18,9 @@ from scipy.sparse.csgraph import dijkstra
 from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
 import os
+from pathlib import Path
 
-BASE_PATH = "/Users/gmeng/Desktop/COOT on Morse-Smale"
+BASE_PATH = Path(__file__).parent.resolve()
 
 
 # =============================================================================
@@ -117,7 +118,15 @@ def compute_all_virtual_centers(cp_data, hyper_df):
 # =============================================================================
 
 def find_adjacent_regions(hyperedge_members):
-    """Find pairs of adjacent regions (share at least one boundary CP)."""
+    """
+    Find pairs of adjacent regions (share 2+ boundary CPs).
+
+    Two regions are truly adjacent if they share a separatrix (edge),
+    which means sharing 2 CPs (the endpoints). Sharing only 1 CP
+    means they only touch at a corner (vertex), not a true adjacency.
+
+    This gives 4-neighbor connectivity instead of 8-neighbor.
+    """
     n_hyper = len(hyperedge_members)
     adjacency = []
 
@@ -126,7 +135,7 @@ def find_adjacent_regions(hyperedge_members):
         for j in range(i + 1, n_hyper):
             members_j = set(hyperedge_members[j])
             shared = members_i & members_j
-            if len(shared) > 0:
+            if len(shared) >= 2:  # True adjacency: share a separatrix
                 adjacency.append((i, j, list(shared)))
 
     return adjacency

@@ -16,11 +16,12 @@ from scipy.stats import multivariate_normal
 from scipy.spatial.distance import cdist
 import matplotlib.pyplot as plt
 import os
+from pathlib import Path
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning, module='gudhi')
 
-BASE_PATH = "/Users/gmeng/Desktop/COOT on Morse-Smale"
+BASE_PATH = Path(__file__).parent.resolve()
 
 # =============================================================================
 # DATA LOADING
