@@ -334,7 +334,12 @@ alpha_type = 0.001 # Small type penalty for balanced results
 ![GWD Results](gwd_point_edge_correspondence.png)
 
 #### HyperCOT
-![HyperCOT Results](hypercot_detailed_correspondence.png)
+
+**Hyperedge Correspondence (ξ):**
+![HyperCOT Hyperedge](hypercot_hyperedge_correspondence.png)
+
+**Node Correspondence (π):**
+![HyperCOT Node](hypercot_node_correspondence.png)
 
 ---
 
@@ -534,7 +539,8 @@ Command line arguments override config file values.
 └── Output (generated)
     ├── wd_correspondence_refined.png
     ├── gwd_point_edge_correspondence.png
-    ├── hypercot_detailed_correspondence.png
+    ├── hypercot_hyperedge_correspondence.png  # ξ correspondence
+    ├── hypercot_node_correspondence.png       # π correspondence
     ├── hypercot_pi.csv                # Node coupling
     ├── hypercot_xi.csv                # Hyperedge coupling
     └── hypercot_summary.csv           # Metrics

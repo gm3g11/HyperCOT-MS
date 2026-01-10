@@ -75,7 +75,8 @@ This project compares Morse-Smale complexes from clean vs noisy sinusoidal surfa
 ### Output Figures
 - `wd_correspondence_refined.png` - WD results (coupling matrix + CP correspondence)
 - `gwd_point_edge_correspondence.png` - GWD results (coupling + correspondence + edge preservation)
-- `hypercot_detailed_correspondence.png` - HyperCOT results (spatial + π + ξ)
+- `hypercot_hyperedge_correspondence.png` - HyperCOT hyperedge (ξ) correspondence
+- `hypercot_node_correspondence.png` - HyperCOT node (π) correspondence
 - `clean_vc_adjacency.png` / `noisy_vc_adjacency.png` - VC adjacency (VC generation + augmented graph + shortest path)
 
 ## HyperCOT Method Summary
