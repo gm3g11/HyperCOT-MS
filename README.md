@@ -272,11 +272,14 @@ Uses **POT library's** `ot.coot.co_optimal_transport()` for Co-Optimal Transport
 Initialize: π = μ₁ ⊗ μ₂,  ξ = ν₁ ⊗ ν₂
 
 Repeat until convergence:
-    1. Fix ξ, update π via Sinkhorn on cost:
-       C_π[v,v'] = Σ_{e,e'} |ω₁(v,e) - ω₂(v',e')|² · ξ(e,e') + α · M_samp[v,v']
+    1. Fix ξ, update π via Sinkhorn:
+       min_π  Σ_{v,v'} C_π[v,v'] · π(v,v') + ε · H(π)
+       where C_π[v,v'] = Σ_{e,e'} |ω₁(v,e) - ω₂(v',e')|² · ξ(e,e') + α · M_samp[v,v']
+       and H(π) = Σ_{v,v'} π(v,v') · log(π(v,v'))  (entropy regularization)
 
-    2. Fix π, update ξ via Sinkhorn on cost:
-       C_ξ[e,e'] = Σ_{v,v'} |ω₁(v,e) - ω₂(v',e')|² · π(v,v')
+    2. Fix π, update ξ via Sinkhorn:
+       min_ξ  Σ_{e,e'} C_ξ[e,e'] · ξ(e,e') + ε · H(ξ)
+       where C_ξ[e,e'] = Σ_{v,v'} |ω₁(v,e) - ω₂(v',e')|² · π(v,v')
 ```
 
 **Key Parameters:**
