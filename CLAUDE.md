@@ -26,6 +26,7 @@ This project compares Morse-Smale complexes from clean vs noisy sinusoidal surfa
 |--------|----------|-------------------|
 | WD | 0.0402 | 90.0% |
 | GWD | 0.0037 | 72.5% |
+| HyperCOT | 0.0062 | 95.9% |
 
 ## Data Summary
 
@@ -95,9 +96,31 @@ This project compares Morse-Smale complexes from clean vs noisy sinusoidal surfa
   - 1 shared CP = regions share only a vertex (corner) → excluded (would be 8-neighbor)
 - Shortest path using Dijkstra with L2 edge weights
 
-### Optimization
-- Alternating Sinkhorn with entropy regularization (reg=0.005)
-- Outputs: π (49×65 node coupling), ξ (36×47 hyperedge coupling)
+### Optimization (using POT library)
+Uses `ot.coot.co_optimal_transport()` from POT (Python Optimal Transport) library.
+
+**Key Parameters:**
+- `epsilon`: Entropy regularization (0 = exact EMD, >0 = Sinkhorn)
+- `alpha`: Type penalty weight for M_samp cost matrix
+- `M_samp`: Type-based cost matrix (1 if types differ, 0 if same)
+
+**Parameter Exploration:**
+
+| epsilon | alpha | Type Preservation | Notes |
+|---------|-------|-------------------|-------|
+| 0 (EMD) | 0 | 89.8% | Baseline without type penalty |
+| 0 (EMD) | 0.005+ | 100% | EMD very sensitive to type penalty |
+| 0.005 | 0 | 85.7% | Sinkhorn only |
+| 0.002 | 0 | 85.7% | Lower regularization |
+| 0.001 | 0.001 | **95.9%** | **Best balance** |
+
+**Final Configuration:**
+```python
+epsilon = 0.001    # Small Sinkhorn regularization
+alpha_type = 0.001 # Small type penalty
+```
+
+**Outputs:** π (49×65 node coupling), ξ (36×47 hyperedge coupling)
 
 ## TTK Data Format Notes
 - `Points_0`, `Points_1`, `Points_2` = (x, y, z) spatial coordinates

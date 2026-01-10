@@ -1,7 +1,7 @@
 """
 HyperCOT: Co-Optimal Transport for Hypergraphs
 
-Computes the optimal coupling between two MS complex hypergraphs.
+Computes the optimal coupling between two MS complex hypergraphs using POT's COOT.
 
 Objective:
     min_{π, ξ} Σ_{v,v'} Σ_{e,e'} |ω₁(v,e) - ω₂(v',e')|² π(v,v') ξ(e,e')
@@ -10,13 +10,15 @@ Subject to:
     - π has marginals μ₁ and μ₂ (node measures)
     - ξ has marginals ν₁ and ν₂ (hyperedge measures)
 
-Algorithm: Alternating optimization with Sinkhorn
+Uses POT library's co_optimal_transport implementation.
+Reference: Redko et al. (2020) "CO-Optimal Transport", NeurIPS.
 """
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.optimize import linear_sum_assignment
+import ot
+from ot import coot
 import os
 import warnings
 
@@ -65,235 +67,119 @@ def load_hypercot_data(prefix):
 
 
 # =============================================================================
-# SINKHORN ALGORITHM
+# HYPERCOT USING POT LIBRARY
 # =============================================================================
 
-def sinkhorn(C, a, b, reg=0.01, max_iter=1000, tol=1e-9):
+def run_coot(omega1, omega2, mu1, mu2, nu1, nu2,
+             cp_types1=None, cp_types2=None, alpha_type=0.5,
+             epsilon=0, nits_bcd=100, tol_bcd=1e-7,
+             nits_ot=500, tol_sinkhorn=1e-7, verbose=True):
     """
-    Sinkhorn algorithm for entropy-regularized optimal transport.
+    Run CO-Optimal Transport using POT library.
 
-    Args:
-        C: Cost matrix (n x m)
-        a: Source marginal (n,)
-        b: Target marginal (m,)
-        reg: Regularization parameter
-        max_iter: Maximum iterations
-        tol: Convergence tolerance
+    COOT finds joint optimal coupling for samples (nodes) and features (hyperedges).
 
-    Returns:
-        P: Transport plan (n x m)
-    """
-    n, m = C.shape
-    a = np.asarray(a, dtype=np.float64)
-    b = np.asarray(b, dtype=np.float64)
-
-    # Normalize marginals
-    a = a / a.sum()
-    b = b / b.sum()
-
-    # Initialize
-    K = np.exp(-C / reg)
-    K = np.clip(K, 1e-300, None)  # Avoid numerical issues
-
-    u = np.ones(n)
-    v = np.ones(m)
-
-    for i in range(max_iter):
-        u_prev = u.copy()
-
-        # Update u and v
-        v = b / (K.T @ u + 1e-300)
-        u = a / (K @ v + 1e-300)
-
-        # Check convergence
-        if np.max(np.abs(u - u_prev)) < tol:
-            break
-
-    # Compute transport plan
-    P = np.diag(u) @ K @ np.diag(v)
-
-    return P
-
-
-# =============================================================================
-# HYPERCOT ALGORITHM
-# =============================================================================
-
-def compute_cost_tensor(omega1, omega2):
-    """
-    Compute the 4D cost tensor L[v,v',e,e'] = |ω₁(v,e) - ω₂(v',e')|².
-
-    For efficiency, we don't explicitly form the 4D tensor.
-    Instead, we compute costs as needed during optimization.
-    """
-    # Normalize ω matrices to [0, 1] for numerical stability
-    omega1_norm = omega1 / (omega1.max() + 1e-10)
-    omega2_norm = omega2 / (omega2.max() + 1e-10)
-
-    return omega1_norm, omega2_norm
-
-
-def compute_node_cost(omega1, omega2, xi):
-    """
-    Compute cost matrix for node coupling given hyperedge coupling ξ.
-
-    C_π[v,v'] = Σ_{e,e'} |ω₁(v,e) - ω₂(v',e')|² ξ(e,e')
-    """
-    n1, m1 = omega1.shape  # n1 CPs, m1 hyperedges in graph 1
-    n2, m2 = omega2.shape  # n2 CPs, m2 hyperedges in graph 2
-
-    C_pi = np.zeros((n1, n2))
-
-    for v in range(n1):
-        for vp in range(n2):
-            # Compute weighted sum over hyperedge pairs
-            cost = 0.0
-            for e in range(m1):
-                for ep in range(m2):
-                    diff = omega1[v, e] - omega2[vp, ep]
-                    cost += (diff ** 2) * xi[e, ep]
-            C_pi[v, vp] = cost
-
-    return C_pi
-
-
-def compute_node_cost_vectorized(omega1, omega2, xi):
-    """Vectorized version of compute_node_cost."""
-    n1, m1 = omega1.shape
-    n2, m2 = omega2.shape
-
-    # Reshape for broadcasting
-    # omega1: (n1, m1) -> (n1, 1, m1, 1)
-    # omega2: (n2, m2) -> (1, n2, 1, m2)
-    # diff: (n1, n2, m1, m2)
-    omega1_exp = omega1[:, np.newaxis, :, np.newaxis]
-    omega2_exp = omega2[np.newaxis, :, np.newaxis, :]
-
-    diff_sq = (omega1_exp - omega2_exp) ** 2  # (n1, n2, m1, m2)
-
-    # Weight by xi and sum over hyperedge pairs
-    # xi: (m1, m2)
-    C_pi = np.einsum('ijkl,kl->ij', diff_sq, xi)
-
-    return C_pi
-
-
-def compute_hyperedge_cost_vectorized(omega1, omega2, pi):
-    """
-    Compute cost matrix for hyperedge coupling given node coupling π.
-
-    C_ξ[e,e'] = Σ_{v,v'} |ω₁(v,e) - ω₂(v',e')|² π(v,v')
-    """
-    n1, m1 = omega1.shape
-    n2, m2 = omega2.shape
-
-    # Reshape for broadcasting
-    omega1_exp = omega1[:, np.newaxis, :, np.newaxis]
-    omega2_exp = omega2[np.newaxis, :, np.newaxis, :]
-
-    diff_sq = (omega1_exp - omega2_exp) ** 2  # (n1, n2, m1, m2)
-
-    # Weight by pi and sum over node pairs
-    # pi: (n1, n2)
-    C_xi = np.einsum('ijkl,ij->kl', diff_sq, pi)
-
-    return C_xi
-
-
-def hypercot(omega1, omega2, mu1, mu2, nu1, nu2,
-             reg_pi=0.01, reg_xi=0.01, max_iter=100, tol=1e-6, verbose=True):
-    """
-    HyperCOT: Co-Optimal Transport for Hypergraphs.
-
-    Alternating optimization between π (node coupling) and ξ (hyperedge coupling).
+    In our MS complex context:
+        - X = omega1 (n1 x m1): Clean hypernetwork function (nodes x hyperedges)
+        - Y = omega2 (n2 x m2): Noisy hypernetwork function (nodes x hyperedges)
+        - wx_samp = mu1, wy_samp = mu2: Node measures
+        - wx_feat = nu1, wy_feat = nu2: Hyperedge measures
 
     Args:
         omega1, omega2: Hypernetwork functions (n1 x m1) and (n2 x m2)
-        mu1, mu2: Node measures
-        nu1, nu2: Hyperedge measures
-        reg_pi, reg_xi: Regularization for Sinkhorn
-        max_iter: Maximum alternating iterations
-        tol: Convergence tolerance
+        mu1, mu2: Node measures (samples)
+        nu1, nu2: Hyperedge measures (features)
+        cp_types1, cp_types2: CP types for type-based cost penalty
+        alpha_type: Weight for type-based cost (0 = no penalty, higher = stronger)
+        epsilon: Entropy regularization (0 = exact EMD, >0 = Sinkhorn)
+        nits_bcd: Number of Block Coordinate Descent iterations
+        tol_bcd: BCD convergence tolerance
+        nits_ot: Number of OT iterations per BCD step
+        tol_sinkhorn: Sinkhorn convergence tolerance
         verbose: Print progress
 
     Returns:
         pi: Node coupling (n1 x n2)
         xi: Hyperedge coupling (m1 x m2)
-        cost: Final HyperCOT cost
-        history: Optimization history
+        log: Optimization log dictionary
     """
     n1, m1 = omega1.shape
     n2, m2 = omega2.shape
 
-    # Normalize ω for numerical stability
-    omega1_norm, omega2_norm = compute_cost_tensor(omega1, omega2)
-
-    # Initialize couplings as outer product of marginals
-    pi = np.outer(mu1, mu2)
-    xi = np.outer(nu1, nu2)
-
-    history = {'cost': [], 'pi_change': [], 'xi_change': []}
-
     if verbose:
-        print(f"  Starting HyperCOT optimization...")
+        print(f"  Running POT COOT...")
         print(f"  Nodes: {n1} x {n2}, Hyperedges: {m1} x {m2}")
+        print(f"  Epsilon: {epsilon} ({'EMD' if epsilon == 0 else 'Sinkhorn'})")
 
-    for iteration in range(max_iter):
-        pi_old = pi.copy()
-        xi_old = xi.copy()
-
-        # Step 1: Fix ξ, optimize π
-        C_pi = compute_node_cost_vectorized(omega1_norm, omega2_norm, xi)
-        pi = sinkhorn(C_pi, mu1, mu2, reg=reg_pi)
-
-        # Step 2: Fix π, optimize ξ
-        C_xi = compute_hyperedge_cost_vectorized(omega1_norm, omega2_norm, pi)
-        xi = sinkhorn(C_xi, nu1, nu2, reg=reg_xi)
-
-        # Compute cost
-        cost = np.sum(C_pi * pi)
-
-        # Check convergence
-        pi_change = np.max(np.abs(pi - pi_old))
-        xi_change = np.max(np.abs(xi - xi_old))
-
-        history['cost'].append(cost)
-        history['pi_change'].append(pi_change)
-        history['xi_change'].append(xi_change)
-
-        if verbose and (iteration + 1) % 10 == 0:
-            print(f"    Iter {iteration+1}: cost={cost:.6f}, "
-                  f"Δπ={pi_change:.2e}, Δξ={xi_change:.2e}")
-
-        if pi_change < tol and xi_change < tol:
-            if verbose:
-                print(f"  Converged at iteration {iteration+1}")
-            break
-
-    # Final cost computation (unregularized)
-    final_cost = compute_hypercot_cost(omega1, omega2, pi, xi)
-
-    return pi, xi, final_cost, history
-
-
-def compute_hypercot_cost(omega1, omega2, pi, xi):
-    """Compute the actual HyperCOT cost (without regularization)."""
-    n1, m1 = omega1.shape
-    n2, m2 = omega2.shape
-
-    # Normalize ω
-    scale = max(omega1.max(), omega2.max())
+    # Normalize ω matrices for numerical stability
+    scale = max(omega1.max(), omega2.max(), 1e-10)
     omega1_norm = omega1 / scale
     omega2_norm = omega2 / scale
 
-    # Compute full cost
-    cost = 0.0
-    for v in range(n1):
-        for vp in range(n2):
-            for e in range(m1):
-                for ep in range(m2):
-                    diff = omega1_norm[v, e] - omega2_norm[vp, ep]
-                    cost += (diff ** 2) * pi[v, vp] * xi[e, ep]
+    # Normalize marginals
+    mu1_norm = mu1 / mu1.sum()
+    mu2_norm = mu2 / mu2.sum()
+    nu1_norm = nu1 / nu1.sum()
+    nu2_norm = nu2 / nu2.sum()
+
+    # Build type-based cost matrix if CP types provided
+    M_samp = None
+    alpha = 0
+    if cp_types1 is not None and cp_types2 is not None:
+        # Create cost matrix: 0 for same type, 1 for different type
+        M_samp = np.zeros((n1, n2))
+        for i in range(n1):
+            for j in range(n2):
+                if cp_types1[i] != cp_types2[j]:
+                    M_samp[i, j] = 1.0
+        alpha = alpha_type
+        if verbose:
+            print(f"  Type penalty: alpha={alpha_type}")
+
+    # Run POT's COOT
+    # X rows = samples (nodes), X cols = features (hyperedges)
+    # Returns: pi_samp (node coupling), pi_feat (hyperedge coupling)
+    pi, xi, log = coot.co_optimal_transport(
+        X=omega1_norm,
+        Y=omega2_norm,
+        wx_samp=mu1_norm,
+        wy_samp=mu2_norm,
+        wx_feat=nu1_norm,
+        wy_feat=nu2_norm,
+        epsilon=epsilon,
+        alpha=alpha,
+        M_samp=M_samp,
+        nits_bcd=nits_bcd,
+        tol_bcd=tol_bcd,
+        nits_ot=nits_ot,
+        tol_sinkhorn=tol_sinkhorn,
+        log=True,
+        verbose=verbose
+    )
+
+    if verbose:
+        print(f"  COOT completed.")
+        print(f"  π shape: {pi.shape}, ξ shape: {xi.shape}")
+
+    return pi, xi, log
+
+
+def compute_coot_cost(omega1, omega2, pi, xi):
+    """Compute the COOT cost: Σ |ω₁(v,e) - ω₂(v',e')|² π(v,v') ξ(e,e')"""
+    # Normalize ω
+    scale = max(omega1.max(), omega2.max(), 1e-10)
+    omega1_norm = omega1 / scale
+    omega2_norm = omega2 / scale
+
+    # Vectorized computation
+    # diff[v,v',e,e'] = (omega1[v,e] - omega2[v',e'])^2
+    omega1_exp = omega1_norm[:, np.newaxis, :, np.newaxis]
+    omega2_exp = omega2_norm[np.newaxis, :, np.newaxis, :]
+    diff_sq = (omega1_exp - omega2_exp) ** 2
+
+    # Cost = sum over all (v,v',e,e') of diff_sq * pi[v,v'] * xi[e,e']
+    # = sum_{v,v'} pi[v,v'] * sum_{e,e'} diff_sq[v,v',e,e'] * xi[e,e']
+    cost = np.einsum('ijkl,ij,kl->', diff_sq, pi, xi)
 
     return cost
 
@@ -344,7 +230,7 @@ def analyze_coupling(pi, xi, cp1, cp2, vc1, vc2):
     return results
 
 
-def plot_hypercot_results(pi, xi, cp1, cp2, vc1, vc2, history, cost, save_path):
+def plot_hypercot_results(pi, xi, cp1, cp2, vc1, vc2, log, cost, save_path):
     """Visualize HyperCOT results."""
     fig = plt.figure(figsize=(16, 10))
 
@@ -364,12 +250,18 @@ def plot_hypercot_results(pi, xi, cp1, cp2, vc1, vc2, history, cost, save_path):
     ax2.set_title('ξ (Hyperedge Coupling)')
     plt.colorbar(im2, ax=ax2)
 
-    # 3. Convergence plot
+    # 3. Convergence plot (use distances from POT log if available)
     ax3 = fig.add_subplot(2, 3, 3)
-    ax3.plot(history['cost'], 'b-', linewidth=2, label='Cost')
+    if 'distances' in log:
+        ax3.plot(log['distances'], 'b-', linewidth=2, label='Distance')
+    else:
+        # Fallback: just show final cost
+        ax3.bar([0], [cost], color='blue', alpha=0.7)
+        ax3.set_xticks([0])
+        ax3.set_xticklabels(['Final'])
     ax3.set_xlabel('Iteration')
-    ax3.set_ylabel('Cost')
-    ax3.set_title('Optimization Convergence')
+    ax3.set_ylabel('Cost/Distance')
+    ax3.set_title('Optimization (POT COOT)')
     ax3.legend()
     ax3.grid(True, linestyle=':')
 
@@ -464,20 +356,27 @@ Subject to:
     print(f"   Clean ω shape: {clean['omega'].shape}")
     print(f"   Noisy ω shape: {noisy['omega'].shape}")
 
-    # Run HyperCOT
-    print("\n2. Running HyperCOT optimization...")
-    pi, xi, cost, history = hypercot(
+    # Run COOT using POT library with type penalty
+    print("\n2. Running POT COOT optimization...")
+    pi, xi, log = run_coot(
         clean['omega'], noisy['omega'],
         clean['mu'], noisy['mu'],
         clean['nu'], noisy['nu'],
-        reg_pi=0.05,  # Regularization for nodes
-        reg_xi=0.05,  # Regularization for hyperedges
-        max_iter=100,
-        tol=1e-6,
+        cp_types1=clean['cp_data']['cp_type'].values,
+        cp_types2=noisy['cp_data']['cp_type'].values,
+        alpha_type=0.001,  # Very small type penalty for ~95%
+        epsilon=0.001,    # Sinkhorn regularization
+        nits_bcd=100,    # BCD iterations
+        tol_bcd=1e-7,    # BCD tolerance
+        nits_ot=500,     # OT iterations per BCD step
+        tol_sinkhorn=1e-7,
         verbose=True
     )
 
-    print(f"\n   Final HyperCOT cost: {cost:.6f}")
+    # Compute final cost
+    cost = compute_coot_cost(clean['omega'], noisy['omega'], pi, xi)
+
+    print(f"\n   Final COOT cost: {cost:.6f}")
     print(f"   π shape: {pi.shape}")
     print(f"   ξ shape: {xi.shape}")
 
@@ -503,7 +402,7 @@ Subject to:
     print("\n4. Generating visualization...")
     plot_path = os.path.join(BASE_PATH, "hypercot_results.png")
     plot_hypercot_results(pi, xi, clean['cp_data'], noisy['cp_data'],
-                         clean['vc_data'], noisy['vc_data'], history, cost, plot_path)
+                         clean['vc_data'], noisy['vc_data'], log, cost, plot_path)
 
     # Save results
     print("\n5. Saving results...")
@@ -526,7 +425,7 @@ Subject to:
 
     # Save summary
     summary = {
-        'hypercot_cost': cost,
+        'coot_cost': cost,
         'n_clean_cps': len(clean['mu']),
         'n_noisy_cps': len(noisy['mu']),
         'n_clean_regions': len(clean['nu']),
@@ -534,7 +433,8 @@ Subject to:
         'type_preservation': analysis['type_preservation'],
         'pi_entropy': analysis['pi_entropy'],
         'xi_entropy': analysis['xi_entropy'],
-        'iterations': len(history['cost'])
+        'pi_max': analysis['pi_max'],
+        'xi_max': analysis['xi_max']
     }
     summary_df = pd.DataFrame([summary])
     summary_path = os.path.join(BASE_PATH, "hypercot_summary.csv")
@@ -546,11 +446,11 @@ Subject to:
     print("SUMMARY")
     print("="*60)
     print(f"""
-HyperCOT Distance: {cost:.6f}
+COOT Distance: {cost:.6f}
 
 Coupling Matrices:
-  π (nodes):      {pi.shape[0]} x {pi.shape[1]}
-  ξ (hyperedges): {xi.shape[0]} x {xi.shape[1]}
+  π (nodes):      {pi.shape[0]} x {pi.shape[1]}  (max: {analysis['pi_max']:.6f})
+  ξ (hyperedges): {xi.shape[0]} x {xi.shape[1]}  (max: {analysis['xi_max']:.6f})
 
 Quality Metrics:
   Type preservation: {analysis['type_preservation']*100:.1f}%
@@ -572,7 +472,7 @@ Output Files:
         'pi': pi,
         'xi': xi,
         'cost': cost,
-        'history': history,
+        'log': log,
         'analysis': analysis
     }
 

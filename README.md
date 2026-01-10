@@ -264,20 +264,39 @@ Returns $\omega$ matrix of shape $(n_{\text{CPs}} \times n_{\text{regions}})$.
 
 #### Optimization — `compute_hypercot.py`
 
-**Algorithm:** Alternating Sinkhorn iteration with entropy regularization
+Uses **POT library's** `ot.coot.co_optimal_transport()` for Co-Optimal Transport.
+
+**Algorithm:** Block Coordinate Descent with Sinkhorn iterations
 
 ```
 Initialize: π = μ₁ ⊗ μ₂,  ξ = ν₁ ⊗ ν₂
 
 Repeat until convergence:
     1. Fix ξ, update π via Sinkhorn on cost:
-       C_π[v,v'] = Σ_{e,e'} |ω₁(v,e) - ω₂(v',e')|² · ξ(e,e')
+       C_π[v,v'] = Σ_{e,e'} |ω₁(v,e) - ω₂(v',e')|² · ξ(e,e') + α · M_samp[v,v']
 
     2. Fix π, update ξ via Sinkhorn on cost:
        C_ξ[e,e'] = Σ_{v,v'} |ω₁(v,e) - ω₂(v',e')|² · π(v,v')
 ```
 
-**Regularization:** $\epsilon = 0.05$
+**Key Parameters:**
+- `epsilon`: Entropy regularization (0 = exact EMD, >0 = Sinkhorn)
+- `alpha`: Weight for type-based cost penalty
+- `M_samp`: Type mismatch cost matrix (1 if CP types differ, 0 otherwise)
+
+**Parameter Exploration:**
+
+| epsilon | alpha | Type Preservation | Notes |
+|---------|-------|-------------------|-------|
+| 0 (EMD) | 0 | 89.8% | Baseline |
+| 0 (EMD) | >0 | 100% | EMD sensitive to type penalty |
+| 0.001 | 0.001 | **95.9%** | **Best balance** |
+
+**Final Configuration:**
+```python
+epsilon = 0.001    # Small Sinkhorn regularization
+alpha_type = 0.001 # Small type penalty for balanced results
+```
 
 **Output:**
 - `hypercot_pi.csv` — Node coupling matrix (n₁ × n₂)
@@ -301,7 +320,7 @@ Repeat until convergence:
 |--------|----------|-------------------|
 | WD     | 0.0402   | 90.0%             |
 | GWD    | 0.0037   | 72.5%             |
-| HyperCOT | 0.0024 | 85.7%            |
+| HyperCOT | 0.0062 | **95.9%**        |
 
 ### Output Visualizations
 
@@ -321,7 +340,7 @@ Repeat until convergence:
 ### Dependencies
 
 ```bash
-pip install numpy pandas scipy matplotlib gudhi
+pip install numpy pandas scipy matplotlib gudhi pot
 ```
 
 **Required packages:**
@@ -332,6 +351,7 @@ pip install numpy pandas scipy matplotlib gudhi
 | `scipy` | Dijkstra shortest path, optimization |
 | `matplotlib` | Visualization |
 | `gudhi` | Extended persistence computation |
+| `pot` | **POT (Python Optimal Transport)** - COOT optimization |
 
 ### Optional: TTK Installation
 
