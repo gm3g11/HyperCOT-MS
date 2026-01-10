@@ -108,24 +108,23 @@ def build_augmented_graph(cp_data, edges, hyper_df, vc_df):
             adj[vc_node, cp_idx] = dist
             cp_vc_edges.append((cp_idx, h_idx))
 
-    # 3. VC ↔ VC edges (adjacent regions)
+    # 3. VC ↔ VC edges (adjacent regions - only strong edges with 2+ shared CPs)
+    # This represents true region adjacency (sharing a separatrix), not just corner contact
     hyperedge_members = [eval(row['hyperedge']) for _, row in hyper_df.iterrows()]
     for i in range(n_hyper):
         members_i = set(hyperedge_members[i])
         for j in range(i + 1, n_hyper):
             members_j = set(hyperedge_members[j])
             shared = members_i & members_j
-            if len(shared) > 0:
+            if len(shared) >= 2:  # Only strong edges (4-neighbor adjacency)
                 vc_i = n_cp + i
                 vc_j = n_cp + j
                 dist = np.linalg.norm(vc_coords[i] - vc_coords[j])
                 adj[vc_i, vc_j] = dist
                 adj[vc_j, vc_i] = dist
                 vc_vc_edges.append((i, j))
-                if len(shared) >= 2:
-                    vc_vc_edges_strong.append((i, j))
 
-    return adj, cp_cp_edges, cp_vc_edges, vc_vc_edges, vc_vc_edges_strong, n_cp, n_hyper
+    return adj, cp_cp_edges, cp_vc_edges, vc_vc_edges, n_cp, n_hyper
 
 
 def find_shortest_path(adj, source, target, n_cp):
@@ -153,8 +152,8 @@ def plot_vc_adjacency(prefix, save_path):
     # Load data
     cp_data, edges, hyper_df, vc_df, vc_adj_df = load_data(prefix)
 
-    # Build augmented graph
-    adj, cp_cp_edges, cp_vc_edges, vc_vc_edges, vc_vc_edges_strong, n_cp, n_hyper = build_augmented_graph(
+    # Build augmented graph (VC-VC edges use only 2+ shared CPs)
+    adj, cp_cp_edges, cp_vc_edges, vc_vc_edges, n_cp, n_hyper = build_augmented_graph(
         cp_data, edges, hyper_df, vc_df
     )
 
@@ -186,12 +185,70 @@ def plot_vc_adjacency(prefix, save_path):
     )
     vc_pos = vc_coords[example_region]
 
+    # Draw ALL regions as faded polygons first
+    from matplotlib.patches import Polygon
+    from matplotlib.collections import PatchCollection
+    region_colors = plt.cm.tab20(np.linspace(0, 1, 20))
+    patches = []
+    colors = []
+
+    for region_idx, r_row in hyper_df.iterrows():
+        r_min_id = int(r_row['min_id'])
+        r_max_id = int(r_row['max_id'])
+        r_saddle_ids = eval(r_row['boundary_saddles'])
+
+        if len(r_saddle_ids) >= 2:
+            r_vertices = np.array([
+                coords[r_min_id],
+                coords[r_saddle_ids[0]],
+                coords[r_max_id],
+                coords[r_saddle_ids[1]]
+            ])
+            # Sort by angle
+            r_cx, r_cy = np.mean(r_vertices[:, 0]), np.mean(r_vertices[:, 1])
+            r_angles = np.arctan2(r_vertices[:, 1] - r_cy, r_vertices[:, 0] - r_cx)
+            r_sorted_idx = np.argsort(r_angles)
+            r_vertices = r_vertices[r_sorted_idx]
+
+            polygon = Polygon(r_vertices, closed=True)
+            patches.append(polygon)
+            colors.append(region_colors[region_idx % 20])
+
+    # Add all region patches (faded)
+    p = PatchCollection(patches, alpha=0.25, zorder=1)
+    p.set_facecolors(colors)
+    p.set_edgecolors('gray')
+    p.set_linewidth(0.5)
+    ax1.add_collection(p)
+
+    # Plot all VCs (faded)
+    ax1.scatter(vc_coords[:, 0], vc_coords[:, 1],
+               c='orange', marker='*', s=60, alpha=0.3,
+               edgecolors='none', zorder=2)
+
     # Plot all CPs (faded)
     for cp_type in [0, 1, 2]:
         mask = types == cp_type
         ax1.scatter(coords[mask, 0], coords[mask, 1],
                    c=CP_COLORS[cp_type], marker=CP_MARKERS[cp_type],
-                   s=30, alpha=0.2, edgecolors='none')
+                   s=30, alpha=0.3, edgecolors='none', zorder=3)
+
+    # Highlight the example region as a brighter polygon
+    region_vertices = np.array([
+        [min_pos[0], min_pos[1]],
+        [s1_pos[0], s1_pos[1]],
+        [max_pos[0], max_pos[1]],
+        [s2_pos[0], s2_pos[1]]
+    ])
+    cx, cy = np.mean(region_vertices[:, 0]), np.mean(region_vertices[:, 1])
+    angles = np.arctan2(region_vertices[:, 1] - cy, region_vertices[:, 0] - cx)
+    sorted_idx = np.argsort(angles)
+    region_vertices = region_vertices[sorted_idx]
+
+    region_poly = Polygon(region_vertices, closed=True,
+                          facecolor='yellow', edgecolor='darkorange',
+                          alpha=0.5, linewidth=2.5, zorder=6)
+    ax1.add_patch(region_poly)
 
     # Highlight the 4 CPs of the example region
     ax1.scatter(min_pos[0], min_pos[1], c=CP_COLORS[0], marker=CP_MARKERS[0],
@@ -211,11 +268,11 @@ def plot_vc_adjacency(prefix, save_path):
     ax1.plot([s1_pos[0], s2_pos[0]], [s1_pos[1], s2_pos[1]],
             'g--', linewidth=2, alpha=0.8, label='Saddle-Saddle line')
 
-    # Plot virtual center (intersection)
+    # Plot highlighted virtual center (intersection)
     ax1.scatter(vc_pos[0], vc_pos[1], c='orange', marker='*', s=400,
                edgecolors='black', linewidths=2, zorder=15, label='Virtual Center')
 
-    # Add annotation - position text to avoid overlapping with CPs
+    # Add annotation
     ax1.annotate(f'VC (Region {example_region + 1})',
                 xy=(vc_pos[0], vc_pos[1]),
                 xytext=(vc_pos[0] + 15, vc_pos[1] + 20),
@@ -228,8 +285,23 @@ def plot_vc_adjacency(prefix, save_path):
     ax1.set_ylabel('Y', fontsize=11)
     ax1.set_title(f'Virtual Center Generation\n(Region {example_region + 1}: Intersection of Min-Max and Saddle-Saddle lines)',
                  fontsize=11, fontweight='bold')
-    ax1.legend(loc='lower center', fontsize=8, framealpha=0.95,
-               ncol=2, bbox_to_anchor=(0.5, -0.18))
+
+    # Custom legend with 3 columns x 2 rows
+    from matplotlib.patches import Patch
+    legend_elements_p1 = [
+        Line2D([0], [0], marker='o', color='w', markerfacecolor=CP_COLORS[0],
+               markersize=10, markeredgecolor='black', label='Minimum'),
+        Line2D([0], [0], marker='s', color='w', markerfacecolor=CP_COLORS[1],
+               markersize=10, markeredgecolor='black', label='Saddle'),
+        Line2D([0], [0], marker='^', color='w', markerfacecolor=CP_COLORS[2],
+               markersize=10, markeredgecolor='black', label='Maximum'),
+        Line2D([0], [0], color='blue', linestyle='--', linewidth=2, label='Min-Max line'),
+        Line2D([0], [0], color='green', linestyle='--', linewidth=2, label='Saddle-Saddle line'),
+        Line2D([0], [0], marker='*', color='w', markerfacecolor='orange',
+               markersize=12, markeredgecolor='black', label='Virtual Center'),
+    ]
+    ax1.legend(handles=legend_elements_p1, loc='lower center', fontsize=8,
+               framealpha=0.95, ncol=3, bbox_to_anchor=(0.5, -0.18))
     ax1.set_aspect('equal')
     ax1.grid(True, alpha=0.3, linestyle=':')
 
@@ -242,19 +314,19 @@ def plot_vc_adjacency(prefix, save_path):
     for i, j in cp_cp_edges:
         ax2.plot([coords[i, 0], coords[j, 0]],
                 [coords[i, 1], coords[j, 1]],
-                color='gray', linewidth=0.8, alpha=0.5, zorder=1)
+                color='gray', linewidth=0.8, alpha=0.4, zorder=1)
 
-    # Draw VC↔VC edges - only strong ones (2+ shared CPs) for cleaner visualization
-    for i, j in vc_vc_edges_strong:
+    # Draw VC↔VC edges (2+ shared CPs = true adjacency), more subtle
+    for i, j in vc_vc_edges:
         ax2.plot([vc_coords[i, 0], vc_coords[j, 0]],
                 [vc_coords[i, 1], vc_coords[j, 1]],
-                color='orange', linewidth=1.5, alpha=0.7, zorder=2)
+                color='orange', linewidth=1.0, alpha=0.35, zorder=2)
 
-    # Draw CP↔VC edges (dotted, very light - reduced for clarity)
+    # Draw CP↔VC edges - more visible now
     for cp_idx, vc_idx in cp_vc_edges:
         ax2.plot([coords[cp_idx, 0], vc_coords[vc_idx, 0]],
                 [coords[cp_idx, 1], vc_coords[vc_idx, 1]],
-                color='purple', linewidth=0.3, alpha=0.15, linestyle=':', zorder=1)
+                color='purple', linewidth=0.8, alpha=0.5, zorder=3)
 
     # Plot CPs
     for cp_type in [0, 1, 2]:
@@ -271,20 +343,20 @@ def plot_vc_adjacency(prefix, save_path):
     # Create legend
     legend_elements = [
         Line2D([0], [0], color='gray', linewidth=1.5, label='CP↔CP (separatrix)'),
+        Line2D([0], [0], color='purple', linewidth=1.5, label='CP↔VC (boundary)'),
         Line2D([0], [0], color='orange', linewidth=2, label='VC↔VC (adjacent)'),
-        Line2D([0], [0], color='purple', linewidth=1, linestyle=':', label='CP↔VC (boundary)'),
         Line2D([0], [0], marker='*', color='w', markerfacecolor='orange',
-               markersize=10, label='Virtual Centers'),
+               markersize=10, label='Virtual Center'),
     ]
 
     ax2.set_xlim(-5, 105)
     ax2.set_ylim(-5, 105)
     ax2.set_xlabel('X', fontsize=11)
     ax2.set_ylabel('Y', fontsize=11)
-    ax2.set_title(f'Augmented Graph with VC-VC Adjacency\n(Orange = {len(vc_vc_edges_strong)} strong adj. pairs sharing 2+ CPs)',
+    ax2.set_title(f'Augmented Graph\n({n_cp} CPs + {n_hyper} VCs, {len(vc_vc_edges)} VC-VC edges)',
                  fontsize=11, fontweight='bold')
     ax2.legend(handles=legend_elements, loc='lower center', fontsize=8,
-               framealpha=0.95, ncol=2, bbox_to_anchor=(0.5, -0.15))
+               framealpha=0.95, ncol=2, bbox_to_anchor=(0.5, -0.18))
     ax2.set_aspect('equal')
 
     # =========================================================================
@@ -292,37 +364,37 @@ def plot_vc_adjacency(prefix, save_path):
     # =========================================================================
     ax3 = axes[2]
 
-    # Use specific examples for better visualization
-    if prefix == "clean":
-        # For clean: CP 45 to Region 20
-        source_cp = 45
-        target_region = 19  # Region 20 (0-indexed)
-    else:
-        # For noisy: use example_region from Panel 1, find far CP
-        target_region = example_region
-        cp_distances_to_vc = np.linalg.norm(coords - vc_coords[target_region], axis=1)
-        source_cp = np.argmax(cp_distances_to_vc)
+    # Use specific examples: middle CP to bottom region
+    # Find CP closest to center (middle of domain)
+    center = np.array([50, 50])
+    cp_distances_to_center = np.linalg.norm(coords - center, axis=1)
+    source_cp = np.argmin(cp_distances_to_center)
+
+    # Find region with VC closest to bottom (lowest y value)
+    target_region = np.argmin(vc_coords[:, 1])
 
     target_vc_node = n_cp + target_region
 
     # Find shortest path
     path, path_dist = find_shortest_path(adj, source_cp, target_vc_node, n_cp)
 
-    # Draw all edges (very faded)
+    # Draw all edges (faded background) - same as middle panel
     for i, j in cp_cp_edges:
         ax3.plot([coords[i, 0], coords[j, 0]],
                 [coords[i, 1], coords[j, 1]],
                 color='gray', linewidth=0.5, alpha=0.2, zorder=1)
 
+    # Draw VC-VC edges (2+ shared CPs) - same as middle panel
     for i, j in vc_vc_edges:
         ax3.plot([vc_coords[i, 0], vc_coords[j, 0]],
                 [vc_coords[i, 1], vc_coords[j, 1]],
-                color='orange', linewidth=0.8, alpha=0.3, zorder=1)
+                color='orange', linewidth=0.6, alpha=0.2, zorder=1)
 
+    # CP↔VC edges more visible
     for cp_idx, vc_idx in cp_vc_edges:
         ax3.plot([coords[cp_idx, 0], vc_coords[vc_idx, 0]],
                 [coords[cp_idx, 1], vc_coords[vc_idx, 1]],
-                color='purple', linewidth=0.3, alpha=0.2, linestyle=':', zorder=1)
+                color='purple', linewidth=0.6, alpha=0.35, zorder=2)
 
     # Draw the shortest path (highlighted)
     path_coords = []
@@ -369,34 +441,51 @@ def plot_vc_adjacency(prefix, save_path):
                c='orange', marker='*', s=60, alpha=0.3,
                edgecolors='none', zorder=3)
 
+    # Highlight target region as shaded polygon
+    target_row = hyper_df.iloc[target_region]
+    target_min_id = int(target_row['min_id'])
+    target_max_id = int(target_row['max_id'])
+    target_saddle_ids = eval(target_row['boundary_saddles'])
+
+    target_region_vertices = np.array([
+        coords[target_min_id],
+        coords[target_saddle_ids[0]],
+        coords[target_max_id],
+        coords[target_saddle_ids[1]]
+    ])
+    # Sort by angle for proper polygon
+    tcx, tcy = np.mean(target_region_vertices[:, 0]), np.mean(target_region_vertices[:, 1])
+    t_angles = np.arctan2(target_region_vertices[:, 1] - tcy, target_region_vertices[:, 0] - tcx)
+    t_sorted_idx = np.argsort(t_angles)
+    target_region_vertices = target_region_vertices[t_sorted_idx]
+
+    from matplotlib.patches import Polygon
+    target_poly = Polygon(target_region_vertices, closed=True,
+                          facecolor='lightyellow', edgecolor='orange',
+                          alpha=0.5, linewidth=2, zorder=4)
+    ax3.add_patch(target_poly)
+
     # Highlight source CP
     ax3.scatter(coords[source_cp, 0], coords[source_cp, 1],
-               c='cyan', marker='o', s=200,
-               edgecolors='black', linewidths=2, zorder=15, label='Source CP')
+               c='cyan', marker='o', s=250,
+               edgecolors='black', linewidths=2, zorder=15)
 
-    # Highlight intermediate VCs on the path
-    intermediate_vcs = [node for node in path if node >= n_cp and node != target_vc_node]
-    for vc_node in intermediate_vcs:
-        vc_idx = vc_node - n_cp
-        ax3.scatter(vc_coords[vc_idx, 0], vc_coords[vc_idx, 1],
-                   c='yellow', marker='*', s=250,
-                   edgecolors='black', linewidths=1.5, zorder=14)
-        # Add label for intermediate VC
-        ax3.annotate(f'VC{vc_idx + 1}',
-                    xy=(vc_coords[vc_idx, 0], vc_coords[vc_idx, 1]),
-                    xytext=(5, 5), textcoords='offset points',
-                    fontsize=8, fontweight='bold', color='darkblue')
+    # Add label for source CP
+    ax3.annotate(f'CP {source_cp}',
+                xy=(coords[source_cp, 0], coords[source_cp, 1]),
+                xytext=(8, 8), textcoords='offset points',
+                fontsize=10, fontweight='bold', color='darkblue')
 
     # Highlight target VC
     ax3.scatter(vc_coords[target_region, 0], vc_coords[target_region, 1],
                c='orange', marker='*', s=400,
-               edgecolors='black', linewidths=2, zorder=15, label='Target VC')
+               edgecolors='black', linewidths=2, zorder=15)
 
-    # Add label for target VC
-    ax3.annotate(f'VC{target_region + 1}',
+    # Add label for target region
+    ax3.annotate(f'Region {target_region + 1}',
                 xy=(vc_coords[target_region, 0], vc_coords[target_region, 1]),
-                xytext=(5, -12), textcoords='offset points',
-                fontsize=9, fontweight='bold', color='darkorange')
+                xytext=(5, -15), textcoords='offset points',
+                fontsize=10, fontweight='bold', color='darkorange')
 
     # Build path string
     path_str = ' → '.join(path_labels)
@@ -405,10 +494,8 @@ def plot_vc_adjacency(prefix, save_path):
     legend_elements = [
         Line2D([0], [0], marker='o', color='w', markerfacecolor='cyan',
                markersize=10, markeredgecolor='black', label='Source CP'),
-        Line2D([0], [0], marker='*', color='w', markerfacecolor='yellow',
-               markersize=10, markeredgecolor='black', label='Intermediate VC'),
         Line2D([0], [0], marker='*', color='w', markerfacecolor='orange',
-               markersize=12, markeredgecolor='black', label='Target VC'),
+               markersize=12, markeredgecolor='black', label='Target Region'),
         Line2D([0], [0], color='blue', linewidth=3, label='CP↔CP edge'),
         Line2D([0], [0], color='green', linewidth=3, label='CP↔VC edge'),
         Line2D([0], [0], color='red', linewidth=3, label='VC↔VC edge'),
@@ -418,8 +505,7 @@ def plot_vc_adjacency(prefix, save_path):
     ax3.set_ylim(-5, 105)
     ax3.set_xlabel('X', fontsize=11)
     ax3.set_ylabel('Y', fontsize=11)
-    ax3.set_title(f'Shortest Path: CP {source_cp} → Region {target_region + 1}\n'
-                 f'Path: {path_str}\nω({source_cp}, {target_region + 1}) = {path_dist:.2f}',
+    ax3.set_title(f'Shortest Path Example\nω(CP {source_cp}, Region {target_region + 1}) = {path_dist:.2f}',
                  fontsize=11, fontweight='bold')
     ax3.legend(handles=legend_elements, loc='lower center', fontsize=8,
                framealpha=0.95, ncol=3, bbox_to_anchor=(0.5, -0.18))
@@ -428,7 +514,7 @@ def plot_vc_adjacency(prefix, save_path):
     # =========================================================================
     # Save figure
     # =========================================================================
-    plt.suptitle(f'ω (Hypernetwork Function): Augmented Hypergraph with VC-VC Adjacency ({prefix.capitalize()})',
+    plt.suptitle(f'Hypernetwork Function ω: Distance from CP to Region ({prefix.capitalize()} MS Complex)',
                 fontsize=14, fontweight='bold', y=0.98)
 
     plt.tight_layout(rect=[0, 0.08, 1, 0.95])
@@ -442,8 +528,7 @@ def plot_vc_adjacency(prefix, save_path):
         'n_vc': n_hyper,
         'n_cp_cp_edges': len(cp_cp_edges),
         'n_cp_vc_edges': len(cp_vc_edges),
-        'n_vc_vc_edges': len(vc_vc_edges),
-        'n_vc_vc_strong': len(vc_vc_edges_strong)
+        'n_vc_vc_edges': len(vc_vc_edges)
     }
 
 
@@ -459,7 +544,7 @@ def main():
     print(f"  CPs: {clean_stats['n_cp']}, VCs: {clean_stats['n_vc']}")
     print(f"  Edges: CP↔CP={clean_stats['n_cp_cp_edges']}, "
           f"CP↔VC={clean_stats['n_cp_vc_edges']}, "
-          f"VC↔VC={clean_stats['n_vc_vc_edges']} (strong: {clean_stats['n_vc_vc_strong']})")
+          f"VC↔VC={clean_stats['n_vc_vc_edges']} (2+ shared CPs)")
 
     # Process noisy
     print("\nProcessing noisy MS complex...")
@@ -468,7 +553,7 @@ def main():
     print(f"  CPs: {noisy_stats['n_cp']}, VCs: {noisy_stats['n_vc']}")
     print(f"  Edges: CP↔CP={noisy_stats['n_cp_cp_edges']}, "
           f"CP↔VC={noisy_stats['n_cp_vc_edges']}, "
-          f"VC↔VC={noisy_stats['n_vc_vc_edges']} (strong: {noisy_stats['n_vc_vc_strong']})")
+          f"VC↔VC={noisy_stats['n_vc_vc_edges']} (2+ shared CPs)")
 
     print("\n" + "=" * 60)
     print("Output files:")

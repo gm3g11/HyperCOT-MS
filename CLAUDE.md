@@ -69,11 +69,13 @@ This project compares Morse-Smale complexes from clean vs noisy sinusoidal surfa
 - `compute_hypercot.py` - HyperCOT optimization (alternating Sinkhorn)
 - `visualize_hypercot_final.py` - HyperCOT visualization
 - `generate_hypergraph.py` - Generate hypergraph CSVs
+- `visualize_vc_adjacency.py` - VC adjacency visualization (3-panel: VC generation, augmented graph, shortest path)
 
 ### Output Figures
 - `wd_correspondence_refined.png` - WD results (coupling matrix + CP correspondence)
 - `gwd_point_edge_correspondence.png` - GWD results (coupling + correspondence + edge preservation)
 - `hypercot_detailed_correspondence.png` - HyperCOT results (spatial + π + ξ)
+- `clean_vc_adjacency.png` / `noisy_vc_adjacency.png` - VC adjacency (VC generation + augmented graph + shortest path)
 
 ## HyperCOT Method Summary
 
@@ -87,7 +89,10 @@ This project compares Morse-Smale complexes from clean vs noisy sinusoidal surfa
 
 ### Hypernetwork Function (ω)
 - Augmented graph: CP↔CP (separatrices) + CP↔VC (boundary) + VC↔VC (adjacent regions)
-- Virtual center: Intersection of (min,max) and (saddle,saddle) lines
+- Virtual center (VC): Intersection of (min,max) and (saddle,saddle) lines
+- **VC-VC adjacency rule**: Two regions are adjacent if they share **2+ boundary CPs**
+  - 2+ shared CPs = regions share a separatrix (edge) → 4-neighbor connectivity
+  - 1 shared CP = regions share only a vertex (corner) → excluded (would be 8-neighbor)
 - Shortest path using Dijkstra with L2 edge weights
 
 ### Optimization
