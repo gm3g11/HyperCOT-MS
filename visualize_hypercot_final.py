@@ -258,8 +258,12 @@ def visualize_hypercot(save_path=None):
                             facecolor=color, edgecolor='black', linewidth=1.0, zorder=0)
             ax_pi.add_patch(rect)
 
-    # Plot the sorted coupling matrix
-    im_pi = ax_pi.imshow(pi_sorted, aspect='auto', cmap='Reds', zorder=1)
+    # Plot the sorted coupling matrix with transparent low values to show blocks
+    from matplotlib.colors import LinearSegmentedColormap
+    # Create custom colormap: transparent white -> red
+    colors = [(1, 1, 1, 0), (1, 0.8, 0.8, 0.5), (1, 0.4, 0.4, 0.8), (0.7, 0, 0, 1)]
+    cmap_transparent = LinearSegmentedColormap.from_list('TransparentReds', colors)
+    im_pi = ax_pi.imshow(pi_sorted, aspect='auto', cmap=cmap_transparent, zorder=1)
     cbar_pi = plt.colorbar(im_pi, ax=ax_pi, shrink=0.85, pad=0.02)
     cbar_pi.set_label('Coupling π', fontsize=10)
 
