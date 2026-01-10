@@ -1,10 +1,16 @@
 """
-HyperCOT Visualization with Probability-Based Region Coloring
+HyperCOT Visualization with Color = Correspondence Principle
+
+Visualization approach:
+- Clean regions: Unique color + ID label (identity)
+- Noisy regions: Inherit color from best match + show matched clean ID
+- Spurious regions: Gray (no strong match)
+- Opacity: Proportional to coupling confidence
+- No connecting lines (color tells the story)
 
 2x2 figure layout:
-- Top Left: Clean MS complex (regions colored by ID)
-- Top Right: Noisy MS complex (color = best match, opacity = coupling strength)
-- Bottom Left: ξ coupling matrix (region coupling)
+- Top: Spatial correspondence (Clean and Noisy side-by-side)
+- Bottom Left: ξ coupling matrix with color strips
 - Bottom Right: π coupling matrix (node coupling)
 """
 
@@ -15,20 +21,21 @@ from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, Normalize
+from matplotlib.cm import ScalarMappable
 import matplotlib.colors as mcolors
+import matplotlib.patheffects as pe
 import os
 
 BASE_PATH = "/Users/gmeng/Desktop/COOT on Morse-Smale"
 
 # Thresholds and parameters
-# Note: SPURIOUS_THRESHOLD is relative to max coupling, set dynamically
-SPURIOUS_RATIO = 0.3          # Below 30% of max coupling, consider spurious
-OPACITY_MIN = 0.35            # Minimum opacity for matched regions
-OPACITY_MAX = 0.85            # Maximum opacity for strong matches
-TOP_K_LINES = 15              # Number of top correspondence lines to draw
-LINE_WIDTH_MIN = 1.0
-LINE_WIDTH_MAX = 4.0
+SPURIOUS_THRESHOLD = 0.002    # Absolute threshold for spurious detection
+OPACITY_MIN = 0.4             # Minimum opacity for weak matches
+OPACITY_MAX = 0.9             # Maximum opacity for strong matches
+TOP_K_LINES = 20              # Number of correspondence lines to draw
+LINE_WIDTH_MIN = 0.5          # Minimum line width
+LINE_WIDTH_MAX = 2.5          # Maximum line width
 
 # CP visualization
 CP_COLORS = {0: '#2166ac', 1: '#4daf4a', 2: '#e41a1c'}
@@ -66,25 +73,63 @@ def get_region_polygon(cp_df, hyper_row):
     return coords[np.argsort(angles)]
 
 
+def get_region_center(cp_df, hyper_row):
+    """Get center point of a region for label placement."""
+    min_id = int(hyper_row['min_id'])
+    max_id = int(hyper_row['max_id'])
+    saddle_ids = eval(hyper_row['boundary_saddles'])
+
+    coords = []
+    for cp_id in [min_id] + list(saddle_ids) + [max_id]:
+        x = cp_df.iloc[cp_id]['Points_0']
+        y = cp_df.iloc[cp_id]['Points_1']
+        coords.append([x, y])
+
+    return np.mean(coords, axis=0)
+
+
 def coupling_to_opacity(coupling_value, max_coupling):
-    """Convert coupling value to opacity."""
-    spurious_threshold = max_coupling * SPURIOUS_RATIO
-    if coupling_value < spurious_threshold:
-        return 0.3  # Low opacity for spurious
+    """Convert coupling value to opacity based on confidence."""
+    if coupling_value < SPURIOUS_THRESHOLD:
+        return 0.0  # Will be handled as spurious
     # Scale to [OPACITY_MIN, OPACITY_MAX]
     normalized = coupling_value / max_coupling
     return OPACITY_MIN + (OPACITY_MAX - OPACITY_MIN) * normalized
 
 
-def is_spurious(coupling_value, max_coupling):
+def is_spurious(coupling_value):
     """Check if a coupling is below spurious threshold."""
-    return coupling_value < max_coupling * SPURIOUS_RATIO
+    return coupling_value < SPURIOUS_THRESHOLD
+
+
+def generate_region_colors(n_regions):
+    """Generate distinct colors for regions using a good colormap."""
+    # Use a combination of tab20 and tab20b for more distinct colors
+    if n_regions <= 20:
+        cmap = plt.cm.tab20
+        colors = [cmap(i / 20) for i in range(n_regions)]
+    else:
+        cmap1 = plt.cm.tab20
+        cmap2 = plt.cm.tab20b
+        colors = []
+        for i in range(n_regions):
+            if i < 20:
+                colors.append(cmap1(i / 20))
+            else:
+                colors.append(cmap2((i - 20) / 20))
+    return colors
 
 
 def visualize_hypercot(save_path=None):
-    """Create HyperCOT visualization matching the reference format:
-    - Top: Single panel with Clean and Noisy side-by-side with correspondence lines
-    - Bottom: ξ matrix (left) and π matrix (right) with linear scale
+    """Create HyperCOT visualization with Color = Correspondence principle.
+
+    - Top: Spatial correspondence (Clean and Noisy side-by-side)
+      - Clean regions: unique color + ID label
+      - Noisy regions: inherited color + matched clean ID + opacity for confidence
+      - Spurious regions: gray, no label
+      - No connecting lines (color tells the story)
+    - Bottom Left: ξ matrix with color strips
+    - Bottom Right: π matrix (node coupling)
     """
 
     # Load data
@@ -95,10 +140,8 @@ def visualize_hypercot(save_path=None):
     n_clean_cps = len(clean_cp)
     n_noisy_cps = len(noisy_cp)
 
-    # Generate consistent colors for clean regions
-    np.random.seed(42)
-    region_cmap = plt.cm.tab20(np.linspace(0, 1, 20))
-    clean_region_colors = {i: region_cmap[i % 20] for i in range(n_clean_regions)}
+    # Generate unique colors for clean regions
+    clean_colors = generate_region_colors(n_clean_regions)
 
     # For each noisy region, find best match and coupling strength
     noisy_best_match = np.argmax(xi, axis=0)  # Best clean region for each noisy
@@ -106,12 +149,11 @@ def visualize_hypercot(save_path=None):
     max_xi = xi.max()
 
     # Count spurious regions
-    spurious_threshold = max_xi * SPURIOUS_RATIO
-    n_spurious = np.sum(noisy_max_coupling < spurious_threshold)
+    n_spurious = np.sum(noisy_max_coupling < SPURIOUS_THRESHOLD)
 
-    # Create figure with gridspec: top panel wide, bottom two panels
-    fig = plt.figure(figsize=(14, 12))
-    gs = fig.add_gridspec(2, 2, height_ratios=[1.3, 1], hspace=0.25, wspace=0.25)
+    # Create figure with gridspec - cleaner 2x2 layout
+    fig = plt.figure(figsize=(11, 10))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.6, 1], hspace=0.22, wspace=0.35)
 
     # =========================================================================
     # Top: Spatial Hyperedge Correspondence (Clean and Noisy side-by-side)
@@ -120,71 +162,69 @@ def visualize_hypercot(save_path=None):
 
     shift_x = 120  # Shift noisy regions to the right
 
-    # Draw Clean Regions (Left)
+    # Draw Clean Regions (Left) with ID labels
     for i, row in clean_hyper.iterrows():
         vertices = get_region_polygon(clean_cp, row)
-        color = clean_region_colors[i][:3]
+        center = get_region_center(clean_cp, row)
+        color = clean_colors[i][:3]
+
+        # Draw polygon with full opacity for clean regions
         polygon = Polygon(vertices, closed=True,
-                          facecolor=(*color, 0.6), edgecolor='gray', linewidth=0.8)
+                          facecolor=(*color, 0.7), edgecolor='black', linewidth=0.8)
         ax_spatial.add_patch(polygon)
 
-    # Draw Noisy Regions (Right, shifted) with matching colors
-    for i, row in noisy_hyper.iterrows():
+        # Add ID label with white outline for readability
+        ax_spatial.text(center[0], center[1], str(i + 1),
+                       ha='center', va='center', fontsize=7, fontweight='bold',
+                       color='black',
+                       path_effects=[pe.withStroke(linewidth=2, foreground='white')])
+
+    # Draw Noisy Regions (Right, shifted) with inherited colors and matched IDs
+    for j, row in noisy_hyper.iterrows():
         vertices = get_region_polygon(noisy_cp, row)
         vertices[:, 0] += shift_x  # Shift right
-        best_r = noisy_best_match[i]
-        coupling = noisy_max_coupling[i]
+        center = get_region_center(noisy_cp, row)
+        center[0] += shift_x
 
-        if is_spurious(coupling, max_xi):
-            facecolor = (0.7, 0.7, 0.7, 0.5)
-            edgecolor = 'darkgray'
+        best_i = noisy_best_match[j]
+        coupling = noisy_max_coupling[j]
+
+        if is_spurious(coupling):
+            # Spurious: gray, no label
+            facecolor = (0.6, 0.6, 0.6, 0.4)
+            edgecolor = 'gray'
+            polygon = Polygon(vertices, closed=True,
+                              facecolor=facecolor, edgecolor=edgecolor, linewidth=0.6)
+            ax_spatial.add_patch(polygon)
         else:
-            base_color = clean_region_colors[best_r][:3]
+            # Inherit color from best match, opacity based on confidence
+            base_color = clean_colors[best_i][:3]
             alpha = coupling_to_opacity(coupling, max_xi)
             facecolor = (*base_color, alpha)
-            edgecolor = 'gray'
+            edgecolor = 'black'
 
-        polygon = Polygon(vertices, closed=True,
-                          facecolor=facecolor, edgecolor=edgecolor, linewidth=0.8)
-        ax_spatial.add_patch(polygon)
+            polygon = Polygon(vertices, closed=True,
+                              facecolor=facecolor, edgecolor=edgecolor, linewidth=0.6)
+            ax_spatial.add_patch(polygon)
 
-    # Draw Virtual Centers
-    ax_spatial.scatter(clean_vc['vc_x'], clean_vc['vc_y'],
-                       c='white', marker='*', s=100, zorder=6,
-                       edgecolors='black', linewidths=0.8, label='Virtual Center')
-    ax_spatial.scatter(noisy_vc['vc_x'] + shift_x, noisy_vc['vc_y'],
-                       c='white', marker='*', s=100, zorder=6,
-                       edgecolors='black', linewidths=0.8)
+            # Add matched clean region ID
+            ax_spatial.text(center[0], center[1], str(best_i + 1),
+                           ha='center', va='center', fontsize=6, fontweight='bold',
+                           color='black',
+                           path_effects=[pe.withStroke(linewidth=2, foreground='white')])
 
-    # Draw CPs
+    # Draw CPs (smaller, less prominent)
     for cp_type in [0, 1, 2]:
         # Clean CPs
         mask = clean_cp['CellDimension'] == cp_type
         ax_spatial.scatter(clean_cp.loc[mask, 'Points_0'], clean_cp.loc[mask, 'Points_1'],
                            c=CP_COLORS[cp_type], marker=CP_MARKERS[cp_type],
-                           s=60, zorder=5, edgecolors='black', linewidths=0.3, alpha=0.9)
+                           s=30, zorder=5, edgecolors='black', linewidths=0.2, alpha=0.7)
         # Noisy CPs (shifted)
         mask = noisy_cp['CellDimension'] == cp_type
         ax_spatial.scatter(noisy_cp.loc[mask, 'Points_0'] + shift_x, noisy_cp.loc[mask, 'Points_1'],
                            c=CP_COLORS[cp_type], marker=CP_MARKERS[cp_type],
-                           s=60, zorder=5, edgecolors='black', linewidths=0.3, alpha=0.9)
-
-    # Draw Top-K Correspondence Lines between VCs
-    flat_xi = xi.flatten()
-    top_indices = np.argsort(flat_xi)[-TOP_K_LINES:][::-1]
-
-    for idx in top_indices:
-        i, j = np.unravel_index(idx, xi.shape)
-        coupling = xi[i, j]
-
-        # Line properties based on coupling
-        alpha = 0.3 + 0.6 * (coupling / max_xi)
-        linewidth = LINE_WIDTH_MIN + (LINE_WIDTH_MAX - LINE_WIDTH_MIN) * (coupling / max_xi)
-
-        ax_spatial.plot([clean_vc.iloc[i]['vc_x'], noisy_vc.iloc[j]['vc_x'] + shift_x],
-                        [clean_vc.iloc[i]['vc_y'], noisy_vc.iloc[j]['vc_y']],
-                        color=clean_region_colors[i][:3],
-                        alpha=alpha, linewidth=linewidth, zorder=3)
+                           s=30, zorder=5, edgecolors='black', linewidths=0.2, alpha=0.7)
 
     # Dividing line
     ax_spatial.axvline(x=110, color='black', linestyle='--', alpha=0.5, linewidth=1.5)
@@ -192,16 +232,17 @@ def visualize_hypercot(save_path=None):
     # Labels
     ax_spatial.text(50, 108, 'Clean MS Complex', ha='center', fontsize=12, fontweight='bold')
     ax_spatial.text(50 + shift_x, 108, 'Noisy MS Complex', ha='center', fontsize=12, fontweight='bold')
-    ax_spatial.text(50, -8, f'({n_clean_regions} regions, {n_clean_cps} CPs)', ha='center', fontsize=10, style='italic')
-    ax_spatial.text(50 + shift_x, -8, f'({n_noisy_regions} regions, {n_noisy_cps} CPs)', ha='center', fontsize=10, style='italic')
+    ax_spatial.text(50, -8, f'({n_clean_regions} regions)', ha='center', fontsize=10, style='italic')
+    ax_spatial.text(50 + shift_x, -8, f'({n_noisy_regions} regions)', ha='center', fontsize=10, style='italic')
 
     ax_spatial.set_xlim(-10, 250)
     ax_spatial.set_ylim(-15, 115)
     ax_spatial.set_aspect('equal')
     ax_spatial.axis('off')
-    ax_spatial.set_title('Spatial Hyperedge Correspondence', fontsize=13, fontweight='bold', pad=10)
+    ax_spatial.set_title('Hyperedge Correspondence: Color = Best Match, Opacity = Confidence',
+                         fontsize=13, fontweight='bold', pad=10)
 
-    # Legend for spatial plot
+    # Legend for spatial plot - positioned on the right
     legend_elements = [
         Line2D([0], [0], marker='o', color='w', markerfacecolor=CP_COLORS[0],
                markersize=8, label='Min', markeredgecolor='black', markeredgewidth=0.5),
@@ -209,24 +250,48 @@ def visualize_hypercot(save_path=None):
                markersize=8, label='Saddle', markeredgecolor='black', markeredgewidth=0.5),
         Line2D([0], [0], marker='^', color='w', markerfacecolor=CP_COLORS[2],
                markersize=8, label='Max', markeredgecolor='black', markeredgewidth=0.5),
-        Line2D([0], [0], marker='*', color='w', markerfacecolor='white',
-               markersize=10, label='Virtual Center', markeredgecolor='black', markeredgewidth=0.8),
     ]
-    ax_spatial.legend(handles=legend_elements, loc='upper center', fontsize=9,
-                      framealpha=0.95, ncol=4, bbox_to_anchor=(0.5, -0.02))
+    ax_spatial.legend(handles=legend_elements, loc='center right', fontsize=9,
+                      framealpha=0.95, ncol=1, bbox_to_anchor=(1.08, 0.5))
 
     # =========================================================================
-    # Bottom Left: ξ Matrix (Hyperedge Coupling) - LINEAR scale like reference
+    # Bottom Left: ξ Matrix with Color Strips
     # =========================================================================
     ax_xi = fig.add_subplot(gs[1, 0])
 
-    im_xi = ax_xi.imshow(xi, aspect='auto', cmap='Oranges')
-    cbar_xi = plt.colorbar(im_xi, ax=ax_xi, shrink=0.85, pad=0.02)
+    # Create subplot with color strips
+    # We'll draw colored bars on the left (clean) and top (noisy)
+    strip_width = 0.03  # Width of color strips relative to main plot
+
+    # Main heatmap
+    im_xi = ax_xi.imshow(xi, aspect='auto', cmap='Oranges', extent=[-0.5, n_noisy_regions-0.5, n_clean_regions-0.5, -0.5])
+    cbar_xi = plt.colorbar(im_xi, ax=ax_xi, shrink=0.8, pad=0.02)
     cbar_xi.set_label('Coupling ξ', fontsize=10)
 
-    ax_xi.set_xlabel('Noisy Region Index', fontsize=10)
-    ax_xi.set_ylabel('Clean Region Index', fontsize=10)
-    ax_xi.set_title('ξ Matrix (Hyperedge Coupling)', fontsize=11, fontweight='bold')
+    # Add color strips as rectangles along axes
+    # Left strip (clean regions) - draw on left side
+    for i in range(n_clean_regions):
+        rect = Rectangle((-2.5, i - 0.5), 1.5, 1,
+                        facecolor=clean_colors[i][:3], edgecolor='none')
+        ax_xi.add_patch(rect)
+
+    # Top strip (noisy regions) - color based on best match
+    for j in range(n_noisy_regions):
+        best_i = noisy_best_match[j]
+        coupling = noisy_max_coupling[j]
+        if is_spurious(coupling):
+            color = (0.6, 0.6, 0.6)
+        else:
+            color = clean_colors[best_i][:3]
+        rect = Rectangle((j - 0.5, -2.5), 1, 1.5,
+                        facecolor=color, edgecolor='none')
+        ax_xi.add_patch(rect)
+
+    ax_xi.set_xlim(-3, n_noisy_regions - 0.5)
+    ax_xi.set_ylim(n_clean_regions - 0.5, -3)
+    ax_xi.set_xlabel('Noisy Region', fontsize=10)
+    ax_xi.set_ylabel('Clean Region', fontsize=10)
+    ax_xi.set_title('ξ Matrix (Hyperedge Coupling)\nColor strips show region identity', fontsize=11, fontweight='bold')
 
     # =========================================================================
     # Bottom Right: π Matrix (Node Coupling) - Sorted by type with colored blocks
@@ -250,7 +315,6 @@ def visualize_hypercot(save_path=None):
     noisy_boundaries = [0, noisy_counts[0], noisy_counts[0] + noisy_counts[1], n_noisy_cps]
 
     # Add colored background regions for type matching (draw first)
-    from matplotlib.patches import Rectangle
     for i, (cb1, cb2) in enumerate(zip(clean_boundaries[:-1], clean_boundaries[1:])):
         for j, (nb1, nb2) in enumerate(zip(noisy_boundaries[:-1], noisy_boundaries[1:])):
             color = '#c8e6c9' if i == j else '#ffcdd2'  # green if same type, pink otherwise
@@ -264,7 +328,7 @@ def visualize_hypercot(save_path=None):
     colors = [(1, 1, 1, 0), (1, 0.8, 0.8, 0.5), (1, 0.4, 0.4, 0.8), (0.7, 0, 0, 1)]
     cmap_transparent = LinearSegmentedColormap.from_list('TransparentReds', colors)
     im_pi = ax_pi.imshow(pi_sorted, aspect='auto', cmap=cmap_transparent, zorder=1)
-    cbar_pi = plt.colorbar(im_pi, ax=ax_pi, shrink=0.85, pad=0.02)
+    cbar_pi = plt.colorbar(im_pi, ax=ax_pi, shrink=0.8, pad=0.02)
     cbar_pi.set_label('Coupling π', fontsize=10)
 
     # Type labels on axes
@@ -278,15 +342,18 @@ def visualize_hypercot(save_path=None):
         ax_pi.text(mid, n_clean_cps + 1.5, CP_NAMES[j], ha='center', va='top', fontsize=9,
                    color=CP_COLORS[j], fontweight='bold')
 
-    ax_pi.set_xlabel('Noisy CP Index (sorted by type)', fontsize=10)
-    ax_pi.set_ylabel('Clean CP Index (sorted by type)', fontsize=10)
-    ax_pi.set_title('π Matrix (Node Coupling)', fontsize=11, fontweight='bold')
+    ax_pi.set_xlabel('Noisy CP (sorted by type)', fontsize=10)
+    ax_pi.set_ylabel('Clean CP (sorted by type)', fontsize=10)
+    ax_pi.set_title('π Matrix (Node Coupling)\nGreen=same type, Pink=different type',
+                    fontsize=11, fontweight='bold')
     ax_pi.set_xlim(-0.5, n_noisy_cps - 0.5)
     ax_pi.set_ylim(n_clean_cps - 0.5, -0.5)
 
     # Main title
     fig.suptitle('HyperCOT: Clean ↔ Noisy MS Complex Correspondence',
                  fontsize=14, fontweight='bold', y=0.98)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
 
     if save_path:
         plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
@@ -298,7 +365,9 @@ def visualize_hypercot(save_path=None):
         'n_noisy_regions': n_noisy_regions,
         'n_spurious': n_spurious,
         'max_coupling': max_xi,
-        'mean_coupling': xi.mean()
+        'mean_coupling': xi.mean(),
+        'clean_colors': clean_colors,
+        'noisy_best_match': noisy_best_match
     }
 
 
@@ -350,7 +419,7 @@ def visualize_correspondence_lines(save_path=None):
         best_r = noisy_best_match[i]
         coupling = noisy_max_coupling[i]
 
-        if is_spurious(coupling, max_xi):
+        if is_spurious(coupling):
             facecolor = (0.7, 0.7, 0.7, 0.4)
             edgecolor = 'darkgray'
         else:
