@@ -56,24 +56,16 @@ VC adjacency figures_example.png
 *.pdf
 
 # ===========================================
-# Generated output files (can be regenerated)
+# Generated output files
 # ===========================================
 
 # Log files
 output/*.log
 *.log
 
-# Intermediate HyperCOT files
-*_node_measure.csv
-*_nu.csv
-*_omega.csv
-*_virtual_centers.csv
-hypercot_pi.csv
-hypercot_xi.csv
-hypercot_summary.csv
-
-# Generated visualization outputs (keep main results, ignore temp files)
-# hypercot_detailed_correspondence.png - KEEP (main result figure)
-
 # PowerPoint presentations (generated)
 *.pptx
+
+# Temporary visualization files (not main results)
+hypercot_spatial_correspondence.png
+hypergraph_visualization_comparison.png
