@@ -32,10 +32,23 @@ pip install -e ".[ttk]"
 The repository includes a sinusoidal dataset (clean vs. noisy surfaces) with pre-extracted TTK output for immediate testing:
 
 ```bash
-# 1. Compute MS-COOT components (hypergraphs, mu, nu, omega)
-python scripts/compute_components.py --dataset sinusoidal --sigma 0.3
+# Run the self-contained demo (no extra data needed)
+python run_demo.py
+```
 
-# 2. Compute consecutive pair distances
+Expected output:
+```
+Method         Distance   Type Pres.
+------------------------------------
+WD               0.0405       95.9%
+GWD              0.0043       81.6%
+FGW              0.0228       85.7%
+MS-COOT          0.0144      100.0%
+```
+
+Or use the full pipeline scripts:
+```bash
+python scripts/compute_components.py --dataset sinusoidal --sigma 0.3
 python scripts/compute_consecutive.py --dataset sinusoidal --methods wd,gwd,fgw,mscoot
 ```
 
