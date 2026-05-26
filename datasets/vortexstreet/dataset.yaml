@@ -1,0 +1,35 @@
+name: vortexstreet
+is_temporal: true
+n_dimensions: 2
+
+columns:
+  x: "Points:0"
+  y: "Points:1"
+  z: "Points:2"
+  cp_type: "CellDimension"
+  cell_id: "CellId"
+  scalar: "Scalars_"
+  timestep: "TimeStep"
+
+separatrices:
+  source: "SourceId"
+  destination: "DestinationId"
+  sep_type: "SeparatrixType"
+  dedup_on: ["SourceId", "DestinationId", "SeparatrixType"]
+
+files:
+  cp_pattern: "critical_points.csv"
+  sep_pattern: "separatrices.csv"
+  seg_pattern: "segmentation.csv"
+
+domain:
+  extent: [[0, 399], [0, 49]]
+  diagonal: 402.0
+  has_duplicate_cellids: true
+
+parameters:
+  sigma: 0.3
+  epsilon: 0.01
+  alpha: 0.5
+  mu_floor: 0.20
+  persistence_threshold: 0.01

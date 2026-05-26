@@ -32,40 +32,47 @@ Thumbs.db
 *.bak
 ~$*
 
-# NumPy files (can be regenerated)
+# Binary data (can be regenerated)
 *.npy
 *.npz
 *.pkl
 *.pickle
 
-# Personal reports and presentations
-weekly report*.pptx
-HyperCOT_MS_Complex_Report*
-
 # Claude config
 .claude/
+CLAUDE.md
 
-# Other directories
-IonizationFront/
-sinusoidal/
+# Large data files
+datasets/*/mesh/*.vti
+datasets/*/mesh/*.vtp
+datasets/*/mesh/*.vtk
+datasets/*/mesh/*.vtu
+datasets/*/ttk_output/
+!datasets/sinusoidal/ttk_output/
 
-# Old/unused screenshots
-VC adjacency figures_example.png
+# Results (all generated / reproducible)
+results/
 
-# PDF versions of figures (keep PNGs only)
+# Archive
+archive/
+
+# Compressed archives
+*.tar.gz
+*.zip
+
+# Experimental / temporary scripts (root level only)
+/_*.py
+CRC_*.md
+HEATMAP_*.md
+HCP_*.csv
+
+# Large binary files
 *.pdf
-
-# ===========================================
-# Generated output files
-# ===========================================
-
-# Log files
-output/*.log
-*.log
-
-# PowerPoint presentations (generated)
 *.pptx
 
-# Temporary visualization files (not main results)
-hypercot_spatial_correspondence.png
-hypergraph_visualization_comparison.png
+# Log files
+*.log
+
+# Images not part of example
+*.png
+*.jpg

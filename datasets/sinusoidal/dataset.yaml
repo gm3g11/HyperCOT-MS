@@ -1,0 +1,34 @@
+name: sinusoidal
+is_temporal: false
+n_dimensions: 2
+
+columns:
+  x: "Points_0"
+  y: "Points_1"
+  z: "Points_2"
+  cp_type: "CellDimension"
+  cell_id: "CellId"
+  scalar: "data"
+  point_id: "Point ID"
+
+separatrices:
+  source: "SourceId"
+  destination: "DestinationId"
+  sep_id: "SeparatrixId"
+  dedup_on: ["SeparatrixId"]
+
+files:
+  prefixes: ["clean", "noisy"]
+  cp_pattern: "{prefix}_critical_points.csv"
+  sep_pattern: "{prefix}_separatrices_cells.csv"
+  seg_pattern: "{prefix}_segmentation.csv"
+
+domain:
+  has_duplicate_cellids: false
+
+parameters:
+  sigma: 0.3
+  epsilon: 0.01
+  alpha: 0.5
+  mu_floor: 0.20
+  persistence_threshold: 0.07
