@@ -122,11 +122,11 @@ Datasets other than sinusoidal require separate download. TTK output is generate
 ## Citation
 
 ```bibtex
-@article{mscoot2026,
-  title     = {{MS-COOT}: Comparing {Morse-Smale} Complexes with Co-Optimal Transport},
-  author    = {Meng, Guangyu and Wang, Bei},
-  journal   = {IEEE Transactions on Visualization and Computer Graphics},
-  year      = {2026}
+@article{meng2026mscoot,
+  title={MS-COOT: Comparing Morse-Smale Complexes with Co-Optimal Transport},
+  author={Meng, Guangyu and Li, Mingzhe and Chambers, Erin Wolf},
+  journal={arXiv preprint arXiv:2606.08258},
+  year={2026}
 }
 ```
 
